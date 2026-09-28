@@ -1,0 +1,323 @@
+<Window x:Class="Backup.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Backup Labs" Width="1040" Height="880" MinWidth="940" MinHeight="780"
+        WindowStartupLocation="CenterScreen" Background="Transparent"
+        FontFamily="Segoe UI" FontSize="14" Foreground="#E8EEF6">
+  <!-- floor under the acrylic so text stays readable over a bright wallpaper -->
+  <Border Background="#990A0D13">
+    <Grid>
+      <Grid.ColumnDefinitions>
+        <ColumnDefinition Width="260"/>
+        <ColumnDefinition Width="*"/>
+      </Grid.ColumnDefinitions>
+
+      <!-- ===== sidebar: the app and its jobs ===== -->
+      <Border Background="#26000000" BorderBrush="{StaticResource Edge}" BorderThickness="0,0,1,0">
+        <DockPanel Margin="20,22,16,20">
+          <StackPanel DockPanel.Dock="Top">
+            <TextBlock Text="Backup Labs" FontSize="22" FontWeight="SemiBold"/>
+            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+              <TextBlock x:Name="VersionText" Foreground="{StaticResource Dimmer}" FontFamily="{StaticResource Mono}" FontSize="12" VerticalAlignment="Center"/>
+              <Button x:Name="UpdateCheckButton" Style="{StaticResource Link}" Content="Check for updates" FontSize="12.5" Margin="12,0,0,0" Click="CheckUpdates_Click"/>
+            </StackPanel>
+            <TextBlock Text="JOBS" Style="{StaticResource Eyebrow}" Margin="2,28,0,8"/>
+          </StackPanel>
+          <StackPanel DockPanel.Dock="Bottom">
+            <DockPanel Margin="0,12,0,0">
+              <Button x:Name="DeleteJobButton" DockPanel.Dock="Right" Content="Delete" Click="DeleteJob_Click"/>
+              <Button Content="New job" HorizontalAlignment="Left" Click="NewJob_Click"/>
+            </DockPanel>
+            <CheckBox x:Name="AutostartBox" Content="Start with Windows" Margin="2,18,0,0" Click="Autostart_Click"/>
+          </StackPanel>
+          <ListBox x:Name="JobList" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Jobs"
+                   ScrollViewer.HorizontalScrollBarVisibility="Disabled" SelectionChanged="JobList_SelectionChanged">
+            <ListBox.ItemTemplate>
+              <DataTemplate>
+                <StackPanel>
+                  <TextBlock Text="{Binding Name}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                  <TextBlock Text="{Binding Status}" Foreground="{StaticResource Dim}" FontSize="12.5" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </Border>
+
+      <!-- ===== the selected job ===== -->
+      <Grid Grid.Column="1">
+        <Grid x:Name="MainView" Margin="28,18,28,20">
+          <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*" MinHeight="96"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+          </Grid.RowDefinitions>
+
+          <StackPanel>
+            <TextBox x:Name="NameBox" Style="{StaticResource TitleBox}" AutomationProperties.Name="Job name" LostFocus="NameBox_LostFocus"/>
+            <TextBlock x:Name="Summary" Foreground="{StaticResource Dim}" Margin="0,2,0,0" Typography.NumeralAlignment="Tabular"/>
+          </StackPanel>
+
+          <!-- folders -->
+          <Grid Grid.Row="1" Margin="0,18,0,0">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,0,8">
+                <Button x:Name="RemoveButton" Content="Remove" Margin="0,0,8,0" IsEnabled="False" Click="Remove_Click"/>
+                <Button Content="Add folders…" Click="Add_Click"/>
+              </StackPanel>
+              <TextBlock Text="FOLDERS TO BACK UP" Style="{StaticResource Eyebrow}" VerticalAlignment="Bottom"/>
+            </DockPanel>
+            <Border Grid.Row="1" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}" BorderThickness="1" CornerRadius="14" Padding="6">
+              <Grid>
+                <ListBox x:Name="SourceList" Background="Transparent" BorderThickness="0" SelectionMode="Extended"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Folders to back up"
+                         SelectionChanged="SourceList_SelectionChanged" KeyDown="SourceList_KeyDown">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate>
+                      <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" ToolTip="{Binding}"/>
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+                <TextBlock x:Name="EmptyHint" Text="No folders yet. Add any folder or a whole drive."
+                           Foreground="{StaticResource Dimmer}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+              </Grid>
+            </Border>
+          </Grid>
+
+          <!-- destination -->
+          <StackPanel Grid.Row="2" Margin="0,18,0,0">
+            <TextBlock Text="SAVE BACKUPS TO" Style="{StaticResource Eyebrow}"/>
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Open" Margin="8,0,0,0" Click="Open_Click"/>
+              <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="Browse_Click"/>
+              <TextBox x:Name="DestBox" AutomationProperties.Name="Destination folder" LostFocus="DestBox_LostFocus"/>
+            </DockPanel>
+          </StackPanel>
+
+          <!-- options -->
+          <Grid Grid.Row="3" Margin="0,18,0,0">
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto"/>
+              <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+
+            <TextBlock Text="FORMAT" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" Margin="2,0,18,0"/>
+            <Border Grid.Column="1" Style="{StaticResource SegBar}">
+              <StackPanel x:Name="FormatBar" Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Seg}" GroupName="Format" Tag="Folders" Content="Folders · incremental"
+                             ToolTip="Each backup is a browsable folder. Unchanged files are hard-linked, so they take no extra space."/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Format" Tag="Zip" Content="Zip archive"
+                             ToolTip="Each backup is one full .zip file."/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Format" Tag="Encrypted" Content="Encrypted"
+                             ToolTip="Each backup is one archive encrypted with AES-256. Only Backup Labs can open it, and only with the password."/>
+              </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="CompressionLabel" Grid.Row="1" Text="COMPRESSION" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" Margin="2,10,18,0"/>
+            <Border x:Name="CompressionBar" Grid.Row="1" Grid.Column="1" Style="{StaticResource SegBar}" Margin="0,10,0,0">
+              <StackPanel x:Name="CompressionPanel" Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Seg}" GroupName="Compression" Tag="NoCompression" Content="None" ToolTip="Fastest, largest. Good for photos and videos, which are already compressed."/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Compression" Tag="Fastest" Content="Fast"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Compression" Tag="Optimal" Content="Balanced"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Compression" Tag="SmallestSize" Content="Smallest" ToolTip="Smallest file, slowest."/>
+              </StackPanel>
+            </Border>
+
+            <TextBlock x:Name="PasswordLabel" Grid.Row="2" Text="PASSWORD" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" Margin="2,10,18,0"/>
+            <DockPanel x:Name="PasswordRow" Grid.Row="2" Grid.Column="1" Margin="0,10,0,0">
+              <PasswordBox x:Name="PasswordBox" Width="190" AutomationProperties.Name="New password"/>
+              <PasswordBox x:Name="PasswordAgain" Width="190" Margin="8,0,0,0" AutomationProperties.Name="Repeat the password"/>
+              <Button Content="Save" Margin="8,0,0,0" Click="SavePassword_Click"/>
+              <TextBlock x:Name="PasswordState" Foreground="{StaticResource Dim}" FontSize="12.5" Margin="12,0,0,0" VerticalAlignment="Center" TextWrapping="Wrap"/>
+            </DockPanel>
+
+            <TextBlock Grid.Row="3" Text="EXCLUDE" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" Margin="2,10,18,0"/>
+            <TextBox x:Name="ExcludeBox" Grid.Row="3" Grid.Column="1" Margin="0,10,0,0" AutomationProperties.Name="Exclude"
+                     ToolTip="Separate with ;  —  names like node_modules or *.tmp match anywhere; paths like C:\Users\me\AppData match that folder."
+                     LostFocus="ExcludeBox_LostFocus"/>
+
+            <TextBlock Grid.Row="4" Text="SCHEDULE" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" Margin="2,10,18,0"/>
+            <Border Grid.Row="4" Grid.Column="1" Style="{StaticResource SegBar}" Margin="0,10,0,0">
+              <StackPanel x:Name="IntervalPanel" Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Seg}" GroupName="Interval" Tag="0" Content="Manual"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Interval" Tag="1" Content="Hourly"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Interval" Tag="6" Content="Every 6 h"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Interval" Tag="24" Content="Daily"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="Interval" Tag="168" Content="Weekly"/>
+              </StackPanel>
+            </Border>
+
+            <TextBlock Grid.Row="5" Text="ALSO" Style="{StaticResource Eyebrow}" VerticalAlignment="Top" Margin="2,14,18,0"/>
+            <WrapPanel Grid.Row="5" Grid.Column="1" Margin="0,12,0,0">
+              <CheckBox x:Name="RealTimeBox" Content="When files change" Margin="0,0,22,6" Click="Triggers_Click"
+                        ToolTip="Backs up a minute after the last change in these folders."/>
+              <CheckBox x:Name="DriveBox" Content="When the backup drive is plugged in" Margin="0,0,22,6" Click="Triggers_Click"
+                        ToolTip="Also finds the drive if it comes back under another letter. Scheduled backups wait for it."/>
+              <CheckBox x:Name="OpenFilesBox" Content="Include open files (asks for admin)" Margin="0,0,0,6" Click="Triggers_Click"
+                        ToolTip="Reads from a shadow copy, so files other programs hold open (Outlook .pst, databases) are copied too. Windows asks for administrator permission at every backup."/>
+            </WrapPanel>
+
+            <TextBlock Grid.Row="6" Text="KEEP" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" Margin="2,10,18,0"/>
+            <DockPanel Grid.Row="6" Grid.Column="1" Margin="0,10,0,0">
+              <Border Style="{StaticResource SegBar}">
+                <StackPanel x:Name="KeepBar" Orientation="Horizontal">
+                  <RadioButton Style="{StaticResource Seg}" GroupName="Keep" Tag="Smart" Content="Smart"
+                               ToolTip="Everything from the last 24 hours, one a day for a month, one a week for a year."/>
+                  <RadioButton Style="{StaticResource Seg}" GroupName="Keep" Tag="Last" Content="The last"/>
+                </StackPanel>
+              </Border>
+              <TextBox x:Name="KeepBox" Width="64" Margin="10,0,0,0" FontFamily="{StaticResource Mono}" HorizontalContentAlignment="Center"
+                       AutomationProperties.Name="Number of backups to keep" LostFocus="KeepBox_LostFocus"/>
+              <TextBlock x:Name="KeepText" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextWrapping="Wrap" Margin="10,0,0,0"/>
+            </DockPanel>
+          </Grid>
+
+          <!-- footer -->
+          <Border Grid.Row="4" Margin="0,20,0,0" Padding="0,16,0,0" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0">
+            <StackPanel>
+              <ProgressBar x:Name="ProgressLine" Visibility="Collapsed" Margin="0,0,0,14" AutomationProperties.Name="Progress"/>
+              <DockPanel>
+                <Button x:Name="RunButton" DockPanel.Dock="Right" Style="{StaticResource Primary}" Content="Back up now" Click="Run_Click"/>
+                <Button x:Name="RestoreOpenButton" DockPanel.Dock="Right" Content="Restore…" Margin="0,0,10,0" Click="RestoreOpen_Click"/>
+                <Button DockPanel.Dock="Right" Content="Log" Margin="0,0,10,0" Click="Log_Click"/>
+                <TextBlock x:Name="Status" Foreground="{StaticResource Dim}" VerticalAlignment="Center" Margin="0,0,14,0"
+                           TextTrimming="CharacterEllipsis" Typography.NumeralAlignment="Tabular"
+                           ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+              </DockPanel>
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <!-- ===== restore: replaces the job view while open; the run itself shows in the job footer ===== -->
+        <Border x:Name="RestorePanel" Visibility="Collapsed">
+          <Grid Margin="28,18,28,20">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <DockPanel>
+              <Border DockPanel.Dock="Right" Style="{StaticResource SegBar}" VerticalAlignment="Center">
+                <StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="WholeTab" Style="{StaticResource Seg}" GroupName="RestoreMode" Content="Whole backup" Checked="RestoreMode_Checked"/>
+                  <RadioButton x:Name="FileTab" Style="{StaticResource Seg}" GroupName="RestoreMode" Content="Find a file" Checked="RestoreMode_Checked"/>
+                </StackPanel>
+              </Border>
+              <StackPanel>
+                <TextBlock Text="Restore" FontSize="28" FontWeight="SemiBold"/>
+                <TextBlock x:Name="RestoreSub" Foreground="{StaticResource Dim}" Margin="0,2,0,0"/>
+              </StackPanel>
+            </DockPanel>
+
+            <!-- whole backup -->
+            <Grid x:Name="WholeView" Grid.Row="1" Margin="0,20,0,0">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+              </Grid.RowDefinitions>
+              <TextBlock Text="BACKUPS, NEWEST FIRST" Style="{StaticResource Eyebrow}"/>
+              <Border Grid.Row="1" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}" BorderThickness="1" CornerRadius="14" Padding="6">
+                <Grid>
+                  <ListBox x:Name="SnapshotList" Background="Transparent" BorderThickness="0" SelectionMode="Single"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Backups"
+                           SelectionChanged="RestoreSelection_Changed">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <DockPanel>
+                          <TextBlock DockPanel.Dock="Right" Text="{Binding Detail}" Foreground="{StaticResource Dim}"
+                                     FontFamily="{StaticResource Mono}" FontSize="12.5" VerticalAlignment="Center"/>
+                          <TextBlock Text="{Binding Label}" Typography.NumeralAlignment="Tabular"/>
+                        </DockPanel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock x:Name="NoSnapshots" Text="No backups in the destination yet." Visibility="Collapsed"
+                             Foreground="{StaticResource Dimmer}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                </Grid>
+              </Border>
+            </Grid>
+
+            <!-- one file, any version -->
+            <Grid x:Name="FileView" Grid.Row="1" Margin="0,20,0,0" Visibility="Collapsed">
+              <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+              </Grid.RowDefinitions>
+              <TextBlock Text="FILE NAME CONTAINS" Style="{StaticResource Eyebrow}"/>
+              <DockPanel Grid.Row="1" Margin="0,0,0,12">
+                <Button x:Name="SearchButton" DockPanel.Dock="Right" Content="Search" Margin="8,0,0,0" Click="Search_Click"/>
+                <TextBox x:Name="SearchBox" AutomationProperties.Name="File name contains" KeyDown="SearchBox_KeyDown"/>
+              </DockPanel>
+              <Border Grid.Row="2" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}" BorderThickness="1" CornerRadius="14" Padding="6">
+                <Grid>
+                  <ListBox x:Name="VersionList" Background="Transparent" BorderThickness="0" SelectionMode="Single"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="File versions"
+                           VirtualizingPanel.IsVirtualizing="True" SelectionChanged="RestoreSelection_Changed">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate>
+                        <DockPanel>
+                          <StackPanel DockPanel.Dock="Right" Margin="12,0,0,0" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding When}" FontFamily="{StaticResource Mono}" FontSize="12.5" HorizontalAlignment="Right"/>
+                            <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Dim}" FontFamily="{StaticResource Mono}" FontSize="12" HorizontalAlignment="Right"/>
+                          </StackPanel>
+                          <StackPanel>
+                            <TextBlock Text="{Binding Name}" TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding Folder}" Foreground="{StaticResource Dim}" FontSize="12.5" TextTrimming="CharacterEllipsis" ToolTip="{Binding Folder}"/>
+                          </StackPanel>
+                        </DockPanel>
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock x:Name="SearchHint" Text="Every version of a file across all backups of this job."
+                             Foreground="{StaticResource Dimmer}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
+                </Grid>
+              </Border>
+            </Grid>
+
+            <StackPanel Grid.Row="2" Margin="0,20,0,0">
+              <TextBlock Text="RESTORE TO" Style="{StaticResource Eyebrow}"/>
+              <Border Style="{StaticResource SegBar}">
+                <StackPanel Orientation="Horizontal">
+                  <RadioButton x:Name="TargetOriginal" Style="{StaticResource Seg}" GroupName="Target" Content="Original locations" Checked="Target_Checked"/>
+                  <RadioButton x:Name="TargetFolder" Style="{StaticResource Seg}" GroupName="Target" Content="Another folder" Checked="Target_Checked"/>
+                </StackPanel>
+              </Border>
+              <DockPanel x:Name="RestoreFolderRow" Margin="0,10,0,0" Visibility="Collapsed">
+                <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="RestoreBrowse_Click"/>
+                <TextBox x:Name="RestoreBox" AutomationProperties.Name="Restore into folder"/>
+              </DockPanel>
+              <TextBlock x:Name="RestoreNote" TextWrapping="Wrap" Margin="2,12,0,0"/>
+            </StackPanel>
+
+            <Border Grid.Row="3" Margin="0,20,0,0" Padding="0,16,0,0" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                  <Button Content="Back" Margin="0,0,10,0" Click="RestoreBack_Click"/>
+                  <Button x:Name="RestoreStartButton" Style="{StaticResource Primary}" Content="Restore" IsEnabled="False" Click="RestoreStart_Click"/>
+                </StackPanel>
+                <TextBlock x:Name="RestoreStatus" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,14,0"/>
+              </DockPanel>
+            </Border>
+          </Grid>
+        </Border>
+      </Grid>
+    </Grid>
+  </Border>
+</Window>
