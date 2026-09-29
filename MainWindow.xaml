@@ -94,6 +94,8 @@
           <StackPanel Grid.Row="2" Margin="0,18,0,0">
             <TextBlock Text="SAVE BACKUPS TO" Style="{StaticResource Eyebrow}"/>
             <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Open in File Labs" Margin="8,0,0,0" Click="OpenInFileLabs_Click"
+                      ToolTip="Opens this folder in File Labs, our file manager. If File Labs is not installed, its page opens instead."/>
               <Button DockPanel.Dock="Right" Content="Open" Margin="8,0,0,0" Click="Open_Click"/>
               <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="Browse_Click"/>
               <TextBox x:Name="DestBox" AutomationProperties.Name="Destination folder" LostFocus="DestBox_LostFocus"/>
