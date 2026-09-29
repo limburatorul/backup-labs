@@ -69,14 +69,15 @@
             <DockPanel>
               <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Margin="0,0,0,8">
                 <Button x:Name="RemoveButton" Content="Remove" Margin="0,0,8,0" IsEnabled="False" Click="Remove_Click"/>
-                <Button Content="Add folders…" Click="Add_Click"/>
+                <Button Content="Add folders…" Margin="0,0,8,0" Click="Add_Click"/>
+                <Button Content="Add files…" Click="AddFiles_Click"/>
               </StackPanel>
-              <TextBlock Text="FOLDERS TO BACK UP" Style="{StaticResource Eyebrow}" VerticalAlignment="Bottom"/>
+              <TextBlock Text="FOLDERS AND FILES TO BACK UP" Style="{StaticResource Eyebrow}" VerticalAlignment="Bottom"/>
             </DockPanel>
             <Border Grid.Row="1" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}" BorderThickness="1" CornerRadius="14" Padding="6">
               <Grid>
                 <ListBox x:Name="SourceList" Background="Transparent" BorderThickness="0" SelectionMode="Extended"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Folders to back up"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled" AutomationProperties.Name="Folders and files to back up"
                          SelectionChanged="SourceList_SelectionChanged" KeyDown="SourceList_KeyDown">
                   <ListBox.ItemTemplate>
                     <DataTemplate>
@@ -84,7 +85,7 @@
                     </DataTemplate>
                   </ListBox.ItemTemplate>
                 </ListBox>
-                <TextBlock x:Name="EmptyHint" Text="No folders yet. Add any folder or a whole drive."
+                <TextBlock x:Name="EmptyHint" Text="Nothing yet. Add folders, a whole drive, or single files."
                            Foreground="{StaticResource Dimmer}" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
               </Grid>
             </Border>

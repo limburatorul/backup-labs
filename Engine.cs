@@ -49,7 +49,7 @@ public static class Engine
 
     public static string? Problem(IReadOnlyList<string> sources, string dest)
     {
-        if (sources.Count == 0) return "Add at least one folder to back up.";
+        if (sources.Count == 0) return "Add at least one folder or file to back up.";
         if (string.IsNullOrWhiteSpace(dest)) return "Choose where the backups go.";
         if (!Path.IsPathFullyQualified(dest)) return "The destination must be a full path, like E:\\Backups.";
         foreach (var src in sources)
@@ -63,7 +63,7 @@ public static class Engine
         var dest = Path.GetFullPath(o.Destination);
         var sources = o.Sources.Select(Path.GetFullPath).ToList();
         var present = sources.Where(Path.Exists).ToList(); // a source is a folder, or a single file
-        if (present.Count == 0) throw new InvalidOperationException("None of the folders exist right now (drive disconnected?).");
+        if (present.Count == 0) throw new InvalidOperationException("None of the folders or files exist right now (drive disconnected?).");
 
         Directory.CreateDirectory(dest);
         foreach (var d in Directory.GetDirectories(dest, "*" + Partial)) DeleteTree(d); // left by an interrupted run
@@ -99,7 +99,7 @@ public static class Engine
             {
                 foreach (var src in sources)
                 {
-                    if (!present.Contains(src)) { st.Failed++; log($"Missing folder, skipped: {src}"); continue; }
+                    if (!present.Contains(src)) { st.Failed++; log($"Missing, skipped: {src}"); continue; }
                     var rel = RelPath(src);
                     if (File.Exists(read[src]))
                     {

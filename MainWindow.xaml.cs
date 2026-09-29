@@ -231,8 +231,18 @@ public partial class MainWindow : Window
     void Add_Click(object sender, RoutedEventArgs e)
     {
         var dlg = new OpenFolderDialog { Title = "Choose folders to back up", Multiselect = true };
-        if (dlg.ShowDialog(this) != true) return;
-        foreach (var f in dlg.FolderNames)
+        if (dlg.ShowDialog(this) == true) AddSources(dlg.FolderNames);
+    }
+
+    void AddFiles_Click(object sender, RoutedEventArgs e)
+    {
+        var dlg = new OpenFileDialog { Title = "Choose files to back up", Multiselect = true };
+        if (dlg.ShowDialog(this) == true) AddSources(dlg.FileNames);
+    }
+
+    void AddSources(IEnumerable<string> paths)
+    {
+        foreach (var f in paths)
             if (!job.Sources.Contains(f, StringComparer.OrdinalIgnoreCase)) job.Sources.Add(f);
         SourceList.Items.Refresh();
         Save();
