@@ -281,22 +281,18 @@ public partial class MainWindow : Window
         Refresh();
     }
 
+    // In File Labs, the sister app, when it is installed: found through the uninstall entry its
+    // installer writes ("never change AppId", its script says). Otherwise in whatever opens folders
+    // on this PC, which is File Explorer unless the user chose something else.
     void Open_Click(object sender, RoutedEventArgs e)
     {
-        if (Directory.Exists(job.Destination)) Process.Start("explorer.exe", $"\"{job.Destination}\"");
-    }
-
-    // File Labs is a sister app, found through the uninstall entry its installer writes ("never
-    // change AppId", its script says); without it the button opens its page.
-    void OpenInFileLabs_Click(object sender, RoutedEventArgs e)
-    {
+        if (!Directory.Exists(job.Destination)) return;
         var exe = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E4C2B9A-3F1D-4C8E-9A6B-51D0C2E8F4A7}_is1", "DisplayIcon", null) as string;
         if (exe == null || !File.Exists(exe))
         {
-            Process.Start(new ProcessStartInfo("https://protagonistlabs.app/filelabs/?utm_source=backuplabs&utm_medium=app&utm_campaign=open-in-filelabs") { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(job.Destination) { UseShellExecute = true });
             return;
         }
-        if (!Directory.Exists(job.Destination)) return;
         // ArgumentList, not a quoted string: a drive root ends in a backslash, which would escape the closing quote
         var start = new ProcessStartInfo(exe);
         start.ArgumentList.Add(job.Destination);
