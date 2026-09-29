@@ -62,7 +62,7 @@ public static class Engine
         if (Problem(o.Sources, o.Destination) is string p) throw new InvalidOperationException(p);
         var dest = Path.GetFullPath(o.Destination);
         var sources = o.Sources.Select(Path.GetFullPath).ToList();
-        var present = sources.Where(Directory.Exists).ToList();
+        var present = sources.Where(Path.Exists).ToList(); // a source is a folder, or a single file
         if (present.Count == 0) throw new InvalidOperationException("None of the folders exist right now (drive disconnected?).");
 
         Directory.CreateDirectory(dest);
@@ -91,7 +91,7 @@ public static class Engine
                     foreach (var s in volume) read[s] = shadow.Device + @"\" + s[volume.Key.Length..];
                 }
 
-            st.Total = present.Sum(s => Scan(new DirectoryInfo(read[s]), s, st, ct));
+            st.Total = present.Sum(s => File.Exists(read[s]) ? new FileInfo(read[s]).Length + PerFile : Scan(new DirectoryInfo(read[s]), s, st, ct));
 
             Stream? output = o.Zip == null ? null : File.Create(work);
             if (output != null && o.Password != null) output = new EncryptStream(output, o.Password);
@@ -101,7 +101,15 @@ public static class Engine
                 {
                     if (!present.Contains(src)) { st.Failed++; log($"Missing folder, skipped: {src}"); continue; }
                     var rel = RelPath(src);
-                    if (archive != null)
+                    if (File.Exists(read[src]))
+                    {
+                        // A file added by name is wanted whatever the exclusions say; they are for what a folder holds.
+                        if (archive == null) Directory.CreateDirectory(Path.GetDirectoryName(Path.Combine(work, rel))!);
+                        CopyFile(new FileInfo(read[src]), src, archive != null ? rel.Replace('\\', '/') : Path.Combine(work, rel),
+                            archive != null ? null : previous.Select(s => Path.Combine(s, rel)).FirstOrDefault(File.Exists),
+                            archive, o.Zip ?? default, st, log, progress);
+                    }
+                    else if (archive != null)
                         Copy(new DirectoryInfo(read[src]), src, rel.Replace('\\', '/'), null, archive, o.Zip!.Value, st, log, progress, ct);
                     else
                     {
@@ -151,19 +159,25 @@ public static class Engine
                 Copy(d, real, to, from, zip, level, st, log, progress, ct);
                 continue;
             }
-            var f = (FileInfo)e;
-            try
-            {
-                if (zip != null) { zip.CreateEntryFromFile(f.FullName, to, level); st.Copied++; st.Bytes += f.Length; }
-                else if (from != null && Same(f, from) && Link(to, from, st, log)) st.Linked++;
-                else { f.CopyTo(to); st.Copied++; st.Bytes += f.Length; }
-            }
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-            {
-                st.Failed++; log($"Skipped {real}: {ex.Message}");
-            }
-            Advance(st, f.Length, real, progress);
+            CopyFile((FileInfo)e, real, to, from, zip, level, st, log, progress);
         }
+    }
+
+    // `to` is a file path, or the entry name inside `zip`; `from` is the same file in the previous backup, if any.
+    static void CopyFile(FileInfo f, string real, string to, string? from, ZipArchive? zip, CompressionLevel level, Stats st,
+        Action<string> log, Action<double, string>? progress)
+    {
+        try
+        {
+            if (zip != null) { zip.CreateEntryFromFile(f.FullName, to, level); st.Copied++; st.Bytes += f.Length; }
+            else if (from != null && Same(f, from) && Link(to, from, st, log)) st.Linked++;
+            else { f.CopyTo(to); st.Copied++; st.Bytes += f.Length; }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            st.Failed++; log($"Skipped {real}: {ex.Message}");
+        }
+        Advance(st, f.Length, real, progress);
     }
 
     // Name patterns (node_modules, *.tmp) match any file or folder name; patterns with a backslash

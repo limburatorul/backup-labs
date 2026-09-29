@@ -168,6 +168,24 @@ catch (InvalidOperationException) { Check(true, "destination inside a source is 
 
 Check(Engine.RelPath(@"D:\") == "D" && Engine.RelPath(@"\\nas\share\x") == @"UNC\nas\share\x", "path mapping");
 
+// ---- a single file as a source ----
+var lone = Path.Combine(root, "lone", "notes.txt");
+Directory.CreateDirectory(Path.GetDirectoryName(lone)!);
+File.WriteAllText(lone, "just this");
+File.WriteAllText(Path.Combine(root, "lone", "neighbour.txt"), "not asked for");
+var loneDst = Path.Combine(root, "dst-file");
+var f1 = Backup(new RunOptions(new[] { lone }, loneDst));
+Check(f1.Copied == 1 && f1.Failed == 0 && File.ReadAllText(Path.Combine(f1.Snapshot, Engine.RelPath(lone))) == "just this", "a single file is backed up");
+Check(Directory.GetFiles(Path.GetDirectoryName(Path.Combine(f1.Snapshot, Engine.RelPath(lone)))!).Length == 1, "and nothing else from its folder");
+var f2 = Backup(new RunOptions(new[] { lone }, loneDst));
+Check(f2.Copied == 0 && f2.Linked == 1, "unchanged, the file is linked to the previous backup");
+var f3 = Backup(new RunOptions(new[] { lone, Path.Combine(src, "sub") }, Path.Combine(root, "dst-file-zip")) { Zip = CompressionLevel.Fastest, Exclude = Engine.ParsePatterns("*.txt") });
+using (var both = ZipFile.OpenRead(f3.Snapshot))
+    Check(both.GetEntry(Engine.RelPath(lone).Replace('\\', '/')) != null && both.Entries.Count(e => e.Name.EndsWith(".txt")) == 1,
+        "in a zip beside a folder, and kept although the folder's exclusions name it");
+Engine.Restore(f1.Snapshot, Path.Combine(root, "restored-file"), null, log.Add, null, default);
+Check(File.ReadAllText(Path.Combine(root, "restored-file", Engine.RelPath(lone))) == "just this", "and restored");
+
 foreach (var f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
 Directory.Delete(root, true);
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");

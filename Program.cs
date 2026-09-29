@@ -22,12 +22,15 @@ static class Program
 
         using var mutex = new Mutex(true, @"Local\limburatorul.BackupLabs", out bool first);
         using var show = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\limburatorul.BackupLabs.Show");
-        if (!first) { show.Set(); return 0; } // bring the running instance forward instead
+        // folders and files to back up, from File Labs' "Back up with Backup Labs" or any command line
+        var paths = args.Where(a => !a.StartsWith("--")).ToArray();
+        if (!first) { Store.Leave(paths); show.Set(); return 0; } // the running instance comes forward and takes them
 
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources = (ResourceDictionary)Application.LoadComponent(new Uri("/BackupLabs;component/Theme.xaml", UriKind.Relative));
         var window = new MainWindow(show);
         if (!args.Contains("--tray")) window.Show();
+        window.NewJobFor(paths.Concat(Store.Take()));
         app.Run();
         return 0;
     }
@@ -103,6 +106,28 @@ static class Store
         var tmp = SettingsPath + ".tmp";
         File.WriteAllText(tmp, JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true }));
         File.Move(tmp, SettingsPath, true);
+    }
+
+    // What a second launch was started with, one path a line, left where the running instance looks
+    // when it is told to come forward. The elevated run talks to the window through files here too.
+    static readonly string IncomingPath = Path.Combine(DataDir, "incoming.txt");
+
+    public static void Leave(string[] paths)
+    {
+        if (paths.Length == 0) return;
+        Directory.CreateDirectory(DataDir);
+        File.AppendAllLines(IncomingPath, paths);
+    }
+
+    public static string[] Take()
+    {
+        try
+        {
+            var paths = File.ReadAllLines(IncomingPath);
+            File.Delete(IncomingPath);
+            return paths;
+        }
+        catch (IOException) { return Array.Empty<string>(); } // nothing was left, the usual case
     }
 
     public static void Log(string message)

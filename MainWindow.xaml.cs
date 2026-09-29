@@ -73,7 +73,7 @@ public partial class MainWindow : Window
         timer.Tick += (_, _) => { Pump(); Refresh(); };
         timer.Start();
         StartUpdateChecks();
-        ThreadPool.RegisterWaitForSingleObject(show, (_, _) => Dispatcher.Invoke(ShowWindow), null, -1, false);
+        ThreadPool.RegisterWaitForSingleObject(show, (_, _) => Dispatcher.Invoke(() => { ShowWindow(); NewJobFor(Store.Take()); }), null, -1, false);
         SourceInitialized += (_, _) => Glass(this);
         Closing += (_, e) => { if (!exiting) { e.Cancel = true; Hide(); } };
         // a window handle even while hidden in the tray, to hear about drives being plugged in
@@ -193,6 +193,28 @@ public partial class MainWindow : Window
         JobList.SelectedItem = j;
         NameBox.Focus();
         NameBox.SelectAll();
+    }
+
+    /// A job for what another program handed over (File Labs' "Back up with Backup Labs"): the paths
+    /// become its sources and the window opens on it, waiting for a destination.
+    internal void NewJobFor(IEnumerable<string> paths)
+    {
+        var sources = paths.Where(p => Path.IsPathFullyQualified(p) && Path.Exists(p))
+            .Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        if (sources.Count == 0) return;
+        // the untouched job a fresh install starts with is filled in, not left empty beside a new one
+        var j = app.Jobs.FirstOrDefault(x => x.Sources.Count == 0 && x.Destination == "" && x.LastRun == null);
+        if (j == null) app.Jobs.Add(j = new Job());
+        j.Name = Path.GetFileName(sources[0].TrimEnd('\\')) is { Length: > 0 } name ? name : sources[0];
+        j.Sources.AddRange(sources);
+        Save();
+        Watch();
+        job = j;
+        JobList.SelectedItem = j; // says nothing when it was selected already, hence the two calls below
+        ShowRestore(false);
+        ShowJob();
+        ShowWindow();
+        DestBox.Focus();
     }
 
     void DeleteJob_Click(object sender, RoutedEventArgs e)
@@ -345,14 +367,17 @@ public partial class MainWindow : Window
         foreach (var w in watchers) w.Dispose();
         watchers.Clear();
         foreach (var j in app.Jobs.Where(j => j.RealTime))
-            foreach (var src in j.Sources.Where(Directory.Exists))
+            foreach (var src in j.Sources.Where(Path.Exists))
             {
-                var w = new FileSystemWatcher(src)
+                // a single file is watched through its folder, by name
+                bool file = File.Exists(src);
+                var w = new FileSystemWatcher(file ? Path.GetDirectoryName(src)! : src)
                 {
-                    IncludeSubdirectories = true,
+                    IncludeSubdirectories = !file,
                     NotifyFilter = NotifyFilters.FileName | NotifyFilters.DirectoryName | NotifyFilters.LastWrite | NotifyFilters.Size,
                     InternalBufferSize = 64 * 1024,
                 };
+                if (file) w.Filter = Path.GetFileName(src);
                 FileSystemEventHandler changed = (_, e) => { if (!Engine.ExcludedPath(j.Exclude, e.FullPath)) j.ChangedAt = DateTime.Now; };
                 w.Changed += changed; w.Created += changed; w.Deleted += changed;
                 w.Renamed += (s, e) => changed(s, e);

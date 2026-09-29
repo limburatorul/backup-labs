@@ -10,7 +10,7 @@
     <RootNamespace>Backup</RootNamespace>
     <AssemblyName>BackupLabs</AssemblyName>
     <!-- the only place a version is written: build.ps1, the installer and the updater all read it -->
-    <Version>1.0.1</Version>
+    <Version>1.0.2</Version>
     <Product>Backup Labs</Product>
     <Company>Protagonist Labs</Company>
     <ApplicationIcon>app.ico</ApplicationIcon>
