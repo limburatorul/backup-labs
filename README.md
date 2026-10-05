@@ -5,6 +5,7 @@ pick where the backups go, and Backup Labs keeps them, on a schedule, when files
 plug in the backup drive.
 
 **[Download the installer](https://github.com/limburatorul/backup-labs/releases/latest)** — Windows 10/11, x64, no admin rights needed. The app updates itself.
+Screenshots, a comparison with other backup tools and the full guide: **[protagonistlabs.app/backuplabs](https://protagonistlabs.app/backuplabs/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs)**.
 
 ## What it does
 
@@ -54,3 +55,9 @@ whose asset ends in `setup.exe` and checks it against the SHA-256 GitHub publish
 | `tests/` | engine checks (`--vss <file>` runs the shadow-copy check, needs admin) |
 
 Settings and the log are in `%APPDATA%\BackupLabs`.
+
+## More from Protagonist Labs
+
+- [SpaceScan](https://protagonistlabs.app/spacescan/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs): see what is filling up a drive, free.
+- [File Labs](https://protagonistlabs.app/filelabs/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs): a free dual-pane file manager.
+- [All apps](https://protagonistlabs.app/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs): Windows apps that each do one job properly.
