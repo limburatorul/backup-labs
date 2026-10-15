@@ -8,5 +8,6 @@
   <ItemGroup>
     <Compile Include="..\Engine.cs" />
     <Compile Include="..\Crypto.cs" />
+    <Compile Include="..\Ecosystem.cs" />
   </ItemGroup>
 </Project>

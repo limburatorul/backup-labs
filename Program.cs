@@ -23,8 +23,21 @@ static class Program
         using var mutex = new Mutex(true, @"Local\limburatorul.BackupLabs", out bool first);
         using var show = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\limburatorul.BackupLabs.Show");
         // folders and files to back up, from File Labs' "Back up with Backup Labs" or any command line
-        var paths = args.Where(a => !a.StartsWith("--")).ToArray();
-        if (!first) { Store.Leave(paths); show.Set(); return 0; } // the running instance comes forward and takes them
+        var paths = args.Where(a => !a.StartsWith("--")).ToList();
+        // a whole job from a sister app (Shelf's game saves): read now, the app that wrote the file may delete it
+        var at = Array.IndexOf(args, "--job-from");
+        if (at >= 0 && at + 1 < args.Length)
+        {
+            paths.Remove(args[at + 1]);
+            Directory.CreateDirectory(Store.DataDir); // for the log, on a PC where Backup Labs never ran
+            try
+            {
+                if (Ecosystem.ReadSpec(File.ReadAllText(args[at + 1])) is JobSpec spec) paths.Add(Ecosystem.Line(spec));
+                else Store.Log("--job-from: nothing to back up in " + args[at + 1]);
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { Store.Log("--job-from: " + e.Message); }
+        }
+        if (!first) { Store.Leave(paths.ToArray()); show.Set(); return 0; } // the running instance comes forward and takes them
 
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         app.Resources = (ResourceDictionary)Application.LoadComponent(new Uri("/BackupLabs;component/Theme.xaml", UriKind.Relative));

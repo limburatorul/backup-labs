@@ -186,6 +186,22 @@ using (var both = ZipFile.OpenRead(f3.Snapshot))
 Engine.Restore(f1.Snapshot, Path.Combine(root, "restored-file"), null, log.Add, null, default);
 Check(File.ReadAllText(Path.Combine(root, "restored-file", Engine.RelPath(lone))) == "just this", "and restored");
 
+// ---- jobs from sister apps (--job-from) and Shelf's save folders ----
+string J(object o) => System.Text.Json.JsonSerializer.Serialize(o);
+var missing = Path.Combine(root, "no-such-save");
+var spec = Ecosystem.ReadSpec(J(new { id = "shelf-saves", name = "Game saves (Shelf)", sources = new[] { src, lone, missing, "relative\\x", src } }));
+Check(spec is { Id: "shelf-saves", Name: "Game saves (Shelf)" } && spec.Sources.SequenceEqual(new[] { src, lone }), "a job request keeps only full paths that exist, each once");
+Check(Ecosystem.ReadSpec(Ecosystem.Line(spec!)) is { Id: "shelf-saves" } again && again.Sources.Count == 2, "and survives the one-line handoff to a running instance");
+Check(Ecosystem.ReadSpec(J(new { name = "x", sources = new[] { missing } })) == null, "a request naming nothing that exists is ignored");
+Check(Ecosystem.ReadSpec(J(new { id = "..\\evil", sources = new[] { src } })) == null && Ecosystem.ReadSpec("not json") == null && Ecosystem.ReadSpec("[1]") == null,
+    "an odd id or a file that is not a job is ignored");
+var shelf = J(new { schema = 1, updated = "2026-10-15T09:00:00Z", games = new object[] {
+    new { id = "a", name = "A", saves = new[] { src, missing } }, new { id = "b", name = "B", saves = new[] { lone, src } }, new { id = "c", name = "C" }, 5 } });
+Check(Ecosystem.ShelfSaves(shelf) is { } saves && saves.SequenceEqual(new[] { src, lone }), "Shelf's save folders: every game's existing saves, once");
+Check(Ecosystem.ShelfSaves(J(new { schema = 2, games = new[] { new { saves = new[] { src } } } })) == null && Ecosystem.ShelfSaves("{") == null
+    && Ecosystem.ShelfSaves(J(new { schema = 1, games = "x" })) == null && Ecosystem.ShelfSaves(J(new { schema = 1, games = new[] { new { saves = new[] { missing } } } })) == null,
+    "a Shelf file with another schema, garbage or no existing saves changes nothing");
+
 foreach (var f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
 Directory.Delete(root, true);
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");

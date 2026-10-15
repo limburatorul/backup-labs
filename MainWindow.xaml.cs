@@ -12,6 +12,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -48,6 +49,8 @@ public partial class MainWindow : Window
         app = Store.Load();
         job = app.Jobs[0];
         VersionText.Text = "v" + Updater.Current;
+        Ecosystem.WriteCard(Updater.Current.ToString());
+        ShowWorksWith();
 
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!)!;
         var menu = new Forms.ContextMenuStrip { Renderer = new Forms.ToolStripProfessionalRenderer(new DarkMenu()), ForeColor = Drawing.Color.FromArgb(0xE8, 0xEE, 0xF6), ShowImageMargin = false };
@@ -196,17 +199,48 @@ public partial class MainWindow : Window
     }
 
     /// A job for what another program handed over (File Labs' "Back up with Backup Labs"): the paths
-    /// become its sources and the window opens on it, waiting for a destination.
-    internal void NewJobFor(IEnumerable<string> paths)
+    /// become its sources and the window opens on it, waiting for a destination. A line holding a whole
+    /// job (`--job-from`, see Ecosystem) creates that job, or updates it when its id is already here.
+    internal void NewJobFor(IEnumerable<string> items)
     {
-        var sources = paths.Where(p => Path.IsPathFullyQualified(p) && Path.Exists(p))
-            .Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+        var list = items.ToList();
+        foreach (var spec in list.Where(l => l.StartsWith('{')).Select(Ecosystem.ReadSpec).OfType<JobSpec>()) JobFrom(spec);
+        var sources = Ecosystem.Existing(list.Where(l => !l.StartsWith('{')));
         if (sources.Count == 0) return;
-        // the untouched job a fresh install starts with is filled in, not left empty beside a new one
+        var j = BlankJob();
+        j.Name = FolderName(sources[0]);
+        j.Sources.AddRange(sources);
+        Bring(j);
+    }
+
+    void JobFrom(JobSpec spec)
+    {
+        var j = spec.Id == null ? null : app.Jobs.FirstOrDefault(x => x.Id == spec.Id);
+        if (j == null)
+        {
+            j = BlankJob();
+            if (spec.Id != null) j.Id = spec.Id;
+            j.Name = spec.Name != "" ? spec.Name : FolderName(spec.Sources[0]);
+        }
+        // the sources are replaced; destination, schedule and name stay the user's
+        j.Sources.Clear();
+        j.Sources.AddRange(spec.Sources);
+        Bring(j);
+    }
+
+    // the untouched job a fresh install starts with is filled in, not left empty beside a new one
+    Job BlankJob()
+    {
         var j = app.Jobs.FirstOrDefault(x => x.Sources.Count == 0 && x.Destination == "" && x.LastRun == null);
         if (j == null) app.Jobs.Add(j = new Job());
-        j.Name = Path.GetFileName(sources[0].TrimEnd('\\')) is { Length: > 0 } name ? name : sources[0];
-        j.Sources.AddRange(sources);
+        return j;
+    }
+
+    static string FolderName(string path) => Path.GetFileName(path.TrimEnd('\\')) is { Length: > 0 } name ? name : path;
+
+    // saved, selected and on screen, focus on the destination
+    void Bring(Job j)
+    {
         Save();
         Watch();
         job = j;
@@ -287,8 +321,8 @@ public partial class MainWindow : Window
     void Open_Click(object sender, RoutedEventArgs e)
     {
         if (!Directory.Exists(job.Destination)) return;
-        var exe = Microsoft.Win32.Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E4C2B9A-3F1D-4C8E-9A6B-51D0C2E8F4A7}_is1", "DisplayIcon", null) as string;
-        if (exe == null || !File.Exists(exe))
+        var exe = FileLabsExe();
+        if (exe == null)
         {
             Process.Start(new ProcessStartInfo(job.Destination) { UseShellExecute = true });
             return;
@@ -297,6 +331,56 @@ public partial class MainWindow : Window
         var start = new ProcessStartInfo(exe);
         start.ArgumentList.Add(job.Destination);
         Process.Start(start);
+    }
+
+    static string? FileLabsExe() =>
+        Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E4C2B9A-3F1D-4C8E-9A6B-51D0C2E8F4A7}_is1", "DisplayIcon", null) is string exe && File.Exists(exe) ? exe : null;
+
+    // ---- Works with: the sister apps that add something here, one quiet line each ----
+
+    static readonly (string Id, string Name)[] Paid = { ("shelf", "Shelf"), ("stash", "Stash"), ("frostpane", "Frostpane"), ("reel", "Reel"), ("planner", "Planner"), ("reminder", "Reminder") };
+
+    static string Page(string id, string? code = null) =>
+        $"https://protagonistlabs.app/{id}/?{(code == null ? "" : $"code={code}&")}utm_source=backuplabs&utm_medium=app&utm_campaign=works-with";
+
+    void ShowWorksWith()
+    {
+        var (installed, bought) = Ecosystem.Sisters();
+        WorksWith.Children.Clear();
+        TextBlock Line()
+        {
+            var t = new TextBlock { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0) };
+            WorksWith.Children.Add(t);
+            return t;
+        }
+        // installed: the name alone; missing: the name links to its page
+        void Sister(string id, string name, bool here, string does, string would)
+        {
+            var t = Line();
+            t.Inlines.Add(here ? new Run(name) : SiteLink(name, Page(id)));
+            t.Inlines.Add(" · " + (here ? does : would));
+        }
+        Sister("shelf", "Shelf", installed.Contains("shelf"), "keeps the game saves job in step with your games", "would back up every game's saves in one job");
+        Sister("filelabs", "File Labs", installed.Contains("filelabs") || FileLabsExe() != null, "opens your backups", "would open your backups");
+
+        var offers = Paid.Where(p => !installed.Contains(p.Id)).Take(4).ToList();
+        if (bought && offers.Count > 0)
+        {
+            var t = Line();
+            t.Inlines.Add("Owners of one of our apps get 30% off the others: ");
+            for (int i = 0; i < offers.Count; i++)
+            {
+                if (i > 0) t.Inlines.Add(" · ");
+                t.Inlines.Add(SiteLink(offers[i].Name, Page(offers[i].Id, offers[i].Id == "shelf" ? "SECOND30SHELF" : "SECOND30")));
+            }
+        }
+    }
+
+    Hyperlink SiteLink(string text, string url)
+    {
+        var link = new Hyperlink(new Run(text)) { Style = (Style)FindResource("Quiet") };
+        link.Click += (_, _) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+        return link;
     }
 
     void Log_Click(object sender, RoutedEventArgs e)
@@ -450,6 +534,15 @@ public partial class MainWindow : Window
     async Task RunAsync(Job j)
     {
         j.Requested = false;
+        // the job Shelf made follows Shelf's list of save folders, so a game installed since is in it
+        if (j.Id == Ecosystem.ShelfJobId && Ecosystem.ShelfSaves() is { } saves && !saves.SequenceEqual(j.Sources, StringComparer.OrdinalIgnoreCase))
+        {
+            j.Sources.Clear();
+            j.Sources.AddRange(saves);
+            if (j == job) SourceList.Items.Refresh();
+            Watch();
+            Store.Log($"{j.Name}: {saves.Count} save folders and files from Shelf");
+        }
         j.StartedAt = DateTime.Now;
         Drives.Present(j); // follow a USB drive to its current letter
         var progress = StartJob(j, $"{j.Name}: backup started ({j.Format.ToLowerInvariant()})");
