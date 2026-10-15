@@ -833,6 +833,7 @@ public partial class MainWindow : Window
 
     void ShowWindow()
     {
+        ShowWorksWith(); // a sister installed since the last look shows up
         Show();
         if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
         Activate();
