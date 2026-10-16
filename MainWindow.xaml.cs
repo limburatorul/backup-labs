@@ -37,7 +37,7 @@ public partial class MainWindow : Window
     readonly List<FileSystemWatcher> watchers = new();
     readonly Forms.NotifyIcon tray;
     readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromSeconds(20) };
-    readonly DispatcherTimer updateTimer = new() { Interval = TimeSpan.FromMinutes(10) };
+    readonly DispatcherTimer updateTimer = new() { Interval = TimeSpan.FromMinutes(60) };
     UpdateDialog? updateDialog;
     bool exiting;
 
@@ -773,7 +773,7 @@ public partial class MainWindow : Window
         Pump();
     }
 
-    // ---- self-update, File Labs' schedule: 3 s after launch, then every 10 minutes ----
+    // ---- self-update, File Labs' schedule: 3 s after launch, then every 60 minutes ----
 
     void StartUpdateChecks()
     {
@@ -793,7 +793,12 @@ public partial class MainWindow : Window
     async Task<string?> CheckForUpdate(bool manual)
     {
         if (updateDialog != null) { updateDialog.Activate(); return null; }
-        var release = await Updater.Check(manual);
+        Updater.Release? release;
+        try { release = await Updater.Check(manual); }
+        catch (Exception ex) when (Updater.Failed(ex))
+        {
+            return manual ? Updater.CheckFailed : null; // the automatic check stays quiet and tries again next hour
+        }
         if (release == null) return manual ? "Up to date" : null;
         if (updateDialog != null) return null; // a manual and a timed check can race over the await
         updateDialog = new UpdateDialog(IsVisible ? this : null, release);
@@ -812,7 +817,9 @@ public partial class MainWindow : Window
         Save();
         if (!upgraded) return;
         // Check() only returns something newer than us; right after updating, the latest IS us.
-        var latest = await Updater.Latest();
+        Updater.Release? latest;
+        try { latest = await Updater.Latest(); }
+        catch (Exception ex) when (Updater.Failed(ex)) { return; } // offline: the notes just aren't shown
         if (latest?.Version.ToString() == current) new UpdateDialog(IsVisible ? this : null, latest, notesOnly: true).Show();
     }
 
@@ -822,10 +829,12 @@ public partial class MainWindow : Window
         UpdateCheckButton.Content = "Checking…";
         var answer = await CheckForUpdate(manual: true);
         UpdateCheckButton.IsEnabled = true;
-        UpdateCheckButton.Content = answer ?? "Check for updates";
+        // the sidebar is narrow: a failure is said short on the button, in full in its tooltip
+        UpdateCheckButton.Content = answer == Updater.CheckFailed ? "Couldn't check, try later" : answer ?? "Check for updates";
+        UpdateCheckButton.ToolTip = answer == Updater.CheckFailed ? answer : null;
         if (answer == null) return;
         var back = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6) };
-        back.Tick += (_, _) => { back.Stop(); UpdateCheckButton.Content = "Check for updates"; };
+        back.Tick += (_, _) => { back.Stop(); UpdateCheckButton.Content = "Check for updates"; UpdateCheckButton.ToolTip = null; };
         back.Start();
     }
 

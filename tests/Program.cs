@@ -202,7 +202,42 @@ Check(Ecosystem.ShelfSaves(J(new { schema = 2, games = new[] { new { saves = new
     && Ecosystem.ShelfSaves(J(new { schema = 1, games = "x" })) == null && Ecosystem.ShelfSaves(J(new { schema = 1, games = new[] { new { saves = new[] { missing } } } })) == null,
     "a Shelf file with another schema, garbage or no existing saves changes nothing");
 
+// ---- a failed update check is a failure, never "nothing newer" ----
+bool CheckFails(string feed)
+{
+    Updater.Feed = feed;
+    try { Updater.Check(manual: true).GetAwaiter().GetResult(); return false; }
+    catch (Exception e) when (Updater.Failed(e)) { return true; }
+}
+static string Serve(int status, string body)
+{
+    var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+    probe.Start(); int port = ((System.Net.IPEndPoint)probe.LocalEndpoint).Port; probe.Stop();
+    var listener = new System.Net.HttpListener();
+    listener.Prefixes.Add($"http://localhost:{port}/");
+    listener.Start();
+    _ = Task.Run(() =>
+    {
+        var c = listener.GetContext();
+        c.Response.StatusCode = status;
+        var bytes = System.Text.Encoding.UTF8.GetBytes(body);
+        c.Response.ContentLength64 = bytes.Length;
+        c.Response.OutputStream.Write(bytes);
+        c.Response.Close(); // the listener is left to the process: stopping it here can cut the answer off
+    });
+    return $"http://localhost:{port}/";
+}
+Check(CheckFails("http://127.0.0.1:9/"), "update check: offline is a failure");
+Check(CheckFails(Serve(403, "{\"message\":\"API rate limit exceeded\"}")), "update check: 403 (rate limit) is a failure");
+Check(CheckFails(Serve(502, "")), "update check: 5xx is a failure");
+Check(CheckFails(Serve(200, "<html>")), "update check: an unreadable answer is a failure");
+Updater.Feed = Serve(200, "{\"tag_name\":\"v0.0.1\",\"body\":\"\",\"assets\":[{\"name\":\"BackupLabs-0.0.1-setup.exe\",\"browser_download_url\":\"x\",\"size\":1}]}");
+Check(Updater.Check(manual: true).GetAwaiter().GetResult() == null, "update check: nothing newer is not a failure");
+
 foreach (var f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
 Directory.Delete(root, true);
 Console.WriteLine(failures == 0 ? "all passed" : $"{failures} failed");
 return failures;
+
+// Updater.cs reports a wrong download size through the window's formatter; the tests have no window.
+namespace Backup { static class MainWindow { public static string Size(long bytes) => $"{bytes} B"; } }
