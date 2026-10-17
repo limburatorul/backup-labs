@@ -395,6 +395,8 @@ public static class Engine
     /// Where a file in a backup came from, for display.
     public static string Original(string rel) => Target(rel, null) ?? rel;
 
+    public static string Size(long b) => b < 1024 ? $"{b} B" : b < 1 << 20 ? $"{b / 1024.0:0.#} KB" : b < 1 << 30 ? $"{b / 1048576.0:0.#} MB" : b < 1L << 40 ? $"{b / 1073741824.0:0.##} GB" : $"{b / 1099511627776.0:0.##} TB";
+
     public static DateTime Date(string snapshot) =>
         DateTime.ParseExact(Path.GetFileNameWithoutExtension(snapshot), Stamp, CultureInfo.InvariantCulture);
 
@@ -470,7 +472,7 @@ public static class Engine
 
     // ---- open files: a Volume Shadow Copy of each source volume, through WMI (needs admin) ----
 
-    sealed class Shadow : IDisposable
+    internal sealed class Shadow : IDisposable
     {
         dynamic? copy;
         public string Device = "";
@@ -485,10 +487,21 @@ public static class Engine
             input.Properties_.Item("Context").Value = "ClientAccessible";
             dynamic output = cls.ExecMethod_("Create", input);
             int code = output.Properties_.Item("ReturnValue").Value;
-            if (code != 0) throw new InvalidOperationException($"Could not make a shadow copy of {volume} (WMI code {code}). Open files need administrator rights.");
+            if (code != 0) throw new InvalidOperationException($"Could not make a shadow copy of {volume}: " + code switch
+            {   // Win32_ShadowCopy.Create's return values
+                1 => "it needs administrator rights.",
+                3 or 4 => "Windows can't shadow-copy that volume.",
+                6 => "the volume has too little room for one (small volumes can't hold a shadow copy).",
+                8 => "the volume already has as many shadow copies as Windows allows.",
+                9 => "another shadow copy is being made right now; try again in a moment.",
+                _ => $"Windows answered with code {code}.",
+            });
             string id = output.Properties_.Item("ShadowID").Value;
             dynamic copy = wmi.Get($"Win32_ShadowCopy.ID='{id}'");
-            return new Shadow { copy = copy, Device = (string)copy.DeviceObject };
+            // through Properties_, never copy.DeviceObject: `dynamic` caches how it reached a property on the first
+            // object, and WMI numbers them per object, so the second shadow copy in a process failed right here
+            // (after it was made, so it stayed on the disk)
+            return new Shadow { copy = copy, Device = (string)copy.Properties_.Item("DeviceObject").Value };
         }
 
         public void Dispose()

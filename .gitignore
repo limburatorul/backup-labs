@@ -4,3 +4,5 @@ dist/
 graft/
 .ignore
 tests/vss-result.txt
+tests/*-result.txt
+tests/shadow-*.txt

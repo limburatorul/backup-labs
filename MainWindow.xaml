@@ -28,6 +28,8 @@
               <Button x:Name="DeleteJobButton" DockPanel.Dock="Right" Content="Delete" Click="DeleteJob_Click"/>
               <Button Content="New job" HorizontalAlignment="Left" Click="NewJob_Click"/>
             </DockPanel>
+            <Button x:Name="CloneOpenButton" Content="Clone a drive…" HorizontalAlignment="Stretch" Margin="0,10,0,0" Click="CloneOpen_Click"
+                    ToolTip="Copy a whole disk (an SD card, a USB stick, a hard disk or SSD) to an image file or onto another disk."/>
             <CheckBox x:Name="AutostartBox" Content="Start with Windows" Margin="2,18,0,0" Click="Autostart_Click"/>
             <!-- sister apps that add something here, filled by ShowWorksWith -->
             <TextBlock Text="Works with" Foreground="{StaticResource Dimmer}" FontSize="12" Margin="2,22,0,0"/>
@@ -318,6 +320,127 @@
                 </StackPanel>
                 <TextBlock x:Name="RestoreStatus" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,14,0"/>
               </DockPanel>
+            </Border>
+          </Grid>
+        </Border>
+
+        <!-- ===== clone a drive: replaces the job view while open, with its own progress bar ===== -->
+        <Border x:Name="ClonePanel" Visibility="Collapsed">
+          <Grid Margin="28,18,28,20">
+            <Grid.RowDefinitions>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="*"/>
+              <RowDefinition Height="Auto"/>
+              <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
+            <DockPanel>
+              <Button x:Name="CloneRefreshButton" DockPanel.Dock="Right" Content="Refresh" VerticalAlignment="Center" Click="CloneRefresh_Click"
+                      ToolTip="Look for disks again, after plugging one in."/>
+              <StackPanel>
+                <TextBlock Text="Clone a drive" FontSize="28" FontWeight="SemiBold"/>
+                <TextBlock Text="A whole disk, sector by sector: an SD card, a USB stick, a hard disk or SSD." Foreground="{StaticResource Dim}" Margin="0,2,0,0"/>
+              </StackPanel>
+            </DockPanel>
+
+            <Border Grid.Row="1" Style="{StaticResource SegBar}" Margin="0,20,0,0">
+              <StackPanel x:Name="CloneModeBar" Orientation="Horizontal">
+                <RadioButton Style="{StaticResource Seg}" GroupName="CloneMode" Tag="DiskToImage" Content="Disk → image file" Checked="CloneMode_Checked"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="CloneMode" Tag="ImageToDisk" Content="Image file → disk" Checked="CloneMode_Checked"/>
+                <RadioButton Style="{StaticResource Seg}" GroupName="CloneMode" Tag="DiskToDisk" Content="Disk → disk" Checked="CloneMode_Checked"/>
+              </StackPanel>
+            </Border>
+
+            <Grid Grid.Row="2" Margin="0,20,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="16"/>
+                <ColumnDefinition Width="*"/>
+              </Grid.ColumnDefinitions>
+              <Grid.Resources>
+                <DataTemplate x:Key="DiskItem">
+                  <StackPanel>
+                    <TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Title}"/>
+                    <TextBlock Text="{Binding Detail}" Foreground="{StaticResource Dim}" FontSize="12.5" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                  </StackPanel>
+                </DataTemplate>
+                <Style x:Key="DiskRow" TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                  <Setter Property="IsEnabled" Value="{Binding Usable}"/>
+                  <Style.Triggers>
+                    <Trigger Property="IsEnabled" Value="False"><Setter Property="Opacity" Value="0.45"/></Trigger>
+                  </Style.Triggers>
+                </Style>
+              </Grid.Resources>
+
+              <!-- from -->
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="FROM" Style="{StaticResource Eyebrow}"/>
+                <StackPanel x:Name="ImageInRow" DockPanel.Dock="Top" Visibility="Collapsed">
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="CloneImageIn_Click"/>
+                    <TextBox x:Name="ImageInBox" AutomationProperties.Name="Image file to write" LostFocus="CloneInputs_Changed"/>
+                  </DockPanel>
+                  <TextBlock x:Name="ImageInInfo" Foreground="{StaticResource Dim}" FontSize="12.5" Margin="2,8,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Border x:Name="SourceDisksBox" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}" BorderThickness="1" CornerRadius="14" Padding="6">
+                  <ListBox x:Name="SourceDisks" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Disk to copy"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemTemplate="{StaticResource DiskItem}"
+                           ItemContainerStyle="{StaticResource DiskRow}" SelectionChanged="CloneInputs_Changed"/>
+                </Border>
+              </DockPanel>
+
+              <!-- to -->
+              <DockPanel Grid.Column="2">
+                <TextBlock DockPanel.Dock="Top" Text="TO" Style="{StaticResource Eyebrow}"/>
+                <StackPanel x:Name="ImageOutRow" DockPanel.Dock="Top">
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Browse…" Margin="8,0,0,0" Click="CloneImageOut_Click"/>
+                    <TextBox x:Name="ImageOutBox" AutomationProperties.Name="Image file to create" LostFocus="CloneInputs_Changed"/>
+                  </DockPanel>
+                  <TextBlock Text="A raw .img: Etcher, Win32 Disk Imager and dd read it, and so does Image file → disk here. On an NTFS drive, empty space takes no room in it."
+                             Foreground="{StaticResource Dim}" FontSize="12.5" Margin="2,8,0,0" TextWrapping="Wrap"/>
+                </StackPanel>
+                <Border x:Name="TargetDisksBox" Background="{StaticResource Panel}" BorderBrush="{StaticResource Edge}" BorderThickness="1" CornerRadius="14" Padding="6" Visibility="Collapsed">
+                  <ListBox x:Name="TargetDisks" Background="Transparent" BorderThickness="0" AutomationProperties.Name="Disk to write to"
+                           ScrollViewer.HorizontalScrollBarVisibility="Disabled" ItemTemplate="{StaticResource DiskItem}"
+                           ItemContainerStyle="{StaticResource DiskRow}" SelectionChanged="CloneInputs_Changed"/>
+                </Border>
+              </DockPanel>
+            </Grid>
+
+            <StackPanel Grid.Row="3" Margin="0,18,0,0">
+              <DockPanel x:Name="CopyRow">
+                <TextBlock Text="COPY" Style="{StaticResource Eyebrow}" VerticalAlignment="Center" Margin="2,0,18,0"/>
+                <Border Style="{StaticResource SegBar}">
+                  <StackPanel x:Name="CopyBar" Orientation="Horizontal">
+                    <RadioButton Style="{StaticResource Seg}" GroupName="CloneCopy" Tag="Full" Content="Every sector" Checked="CloneInputs_Changed"
+                                 ToolTip="An exact copy of the whole disk, whatever its file systems."/>
+                    <RadioButton Style="{StaticResource Seg}" GroupName="CloneCopy" Tag="Used" Content="Used space only" Checked="CloneInputs_Changed"
+                                 ToolTip="On NTFS volumes, only the clusters in use are read: much faster on a big, half-empty disk. Other file systems (FAT, exFAT) are copied whole."/>
+                  </StackPanel>
+                </Border>
+              </DockPanel>
+              <WrapPanel Margin="0,12,0,0">
+                <CheckBox x:Name="CloneVerify" Content="Verify after writing" IsChecked="True" Margin="0,0,22,6"
+                          ToolTip="Reads everything back and compares it. Catches a faulty card or cable; takes about as long again."/>
+                <CheckBox x:Name="CloneGrow" Content="Give the extra space to the last partition" IsChecked="True" Margin="0,0,0,6" Click="CloneInputs_Changed"
+                          ToolTip="When the new disk is bigger: a recovery partition at the end moves to the new end, and the partition before it grows, file system included."/>
+              </WrapPanel>
+              <TextBlock x:Name="CloneNote" TextWrapping="Wrap" Margin="2,10,0,0"/>
+            </StackPanel>
+
+            <Border Grid.Row="4" Margin="0,18,0,0" Padding="0,16,0,0" BorderBrush="{StaticResource Edge}" BorderThickness="0,1,0,0">
+              <StackPanel>
+                <ProgressBar x:Name="CloneProgress" Visibility="Collapsed" Margin="0,0,0,14" AutomationProperties.Name="Clone progress"/>
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <Button x:Name="CloneBackButton" Content="Back" Margin="0,0,10,0" Click="CloneBack_Click"/>
+                    <Button x:Name="CloneStartButton" Style="{StaticResource Primary}" Content="Create image" IsEnabled="False" Click="CloneStart_Click"/>
+                  </StackPanel>
+                  <TextBlock x:Name="CloneStatus" Foreground="{StaticResource Dim}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Margin="0,0,14,0"
+                             ToolTip="{Binding Text, RelativeSource={RelativeSource Self}}"/>
+                </DockPanel>
+              </StackPanel>
             </Border>
           </Grid>
         </Border>

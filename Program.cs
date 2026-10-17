@@ -19,6 +19,7 @@ static class Program
     static int Main(string[] args)
     {
         if (args.Length == 2 && args[0] == "--elevated-job") return Elevated.Run(args[1]);
+        if (args.Length == 2 && args[0] == "--elevated-clone") return Elevated.RunClone(args[1]);
 
         using var mutex = new Mutex(true, @"Local\limburatorul.BackupLabs", out bool first);
         using var show = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\limburatorul.BackupLabs.Show");
@@ -185,28 +186,39 @@ static class Drives
 // settings: progress and cancel while it runs, the result at the end.
 static class Elevated
 {
-    public sealed record Outcome(RunResult? Result, string? Error, bool Cancelled);
+    public sealed record Outcome(RunResult? Result, string? Error, bool Cancelled, CloneResult? Cloned = null);
 
-    public static string FileFor(string jobId, string kind) => Path.Combine(Store.DataDir, $"elevated-{jobId}.{kind}");
+    public static string FileFor(string id, string kind) => Path.Combine(Store.DataDir, $"elevated-{id}.{kind}");
 
-    public static int Run(string jobId)
+    public static int Run(string jobId) => Serve(jobId, "Backup with open files", (progress, ct) =>
+    {
+        var job = Store.Load().Jobs.FirstOrDefault(j => j.Id == jobId) ?? throw new InvalidOperationException("The job no longer exists.");
+        return new Outcome(Engine.Run(job.Options(), Store.Log, progress, ct), null, false);
+    });
+
+    /// A disk clone: reading and writing whole disks needs administrator rights. The request comes as a file.
+    public static int RunClone(string id) => Serve(id, "Clone", (progress, ct) =>
+    {
+        var request = JsonSerializer.Deserialize<CloneRequest>(File.ReadAllText(FileFor(id, "request"))) ?? throw new InvalidOperationException("The clone request is unreadable.");
+        return new Outcome(null, null, false, Clone.Run(request, Store.Log, progress, ct));
+    });
+
+    static int Serve(string id, string what, Func<Action<double, string>, CancellationToken, Outcome> work)
     {
         using var cts = new CancellationTokenSource();
-        using var watch = new Timer(_ => { if (File.Exists(FileFor(jobId, "cancel"))) cts.Cancel(); }, null, 500, 500);
+        using var watch = new Timer(_ => { if (File.Exists(FileFor(id, "cancel"))) cts.Cancel(); }, null, 500, 500);
         Outcome outcome;
         try
         {
-            var job = Store.Load().Jobs.FirstOrDefault(j => j.Id == jobId) ?? throw new InvalidOperationException("The job no longer exists.");
-            var result = Engine.Run(job.Options(), Store.Log, (f, text) =>
+            outcome = work((f, text) =>
             {
-                try { File.WriteAllText(FileFor(jobId, "progress"), f.ToString(CultureInfo.InvariantCulture) + "\n" + text); }
+                try { File.WriteAllText(FileFor(id, "progress"), f.ToString(CultureInfo.InvariantCulture) + "\n" + text); }
                 catch (IOException) { } // the app is reading it right now; the next report comes in 150 ms
             }, cts.Token);
-            outcome = new Outcome(result, null, false);
         }
         catch (OperationCanceledException) { outcome = new Outcome(null, null, true); }
-        catch (Exception e) { outcome = new Outcome(null, e.Message, false); Store.Log("Backup with open files failed: " + e); }
-        File.WriteAllText(FileFor(jobId, "result"), JsonSerializer.Serialize(outcome));
+        catch (Exception e) { outcome = new Outcome(null, e.Message, false); Store.Log($"{what} failed: {e}"); }
+        File.WriteAllText(FileFor(id, "result"), JsonSerializer.Serialize(outcome));
         return 0;
     }
 }

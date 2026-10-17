@@ -479,7 +479,13 @@ public partial class MainWindow : Window
 
     IntPtr DeviceChanges(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
     {
-        const int WM_DEVICECHANGE = 0x219, DBT_DEVICEARRIVAL = 0x8000, DBT_DEVTYP_VOLUME = 2;
+        const int WM_DEVICECHANGE = 0x219, DBT_DEVICEARRIVAL = 0x8000, DBT_DEVICEREMOVECOMPLETE = 0x8004, DBT_DEVTYP_VOLUME = 2;
+        if (msg == WM_DEVICECHANGE && (int)wParam is DBT_DEVICEARRIVAL or DBT_DEVICEREMOVECOMPLETE && ClonePanel.Visibility == Visibility.Visible && !cloning)
+        {   // a card or stick in or out: the clone panel's lists follow
+            var later = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            later.Tick += (_, _) => { later.Stop(); if (!cloning) _ = RefreshDisks(); };
+            later.Start();
+        }
         if (msg == WM_DEVICECHANGE && (int)wParam == DBT_DEVICEARRIVAL && lParam != IntPtr.Zero && Marshal.ReadInt32(lParam, 4) == DBT_DEVTYP_VOLUME)
         {
             var settle = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) }; // let Windows finish mounting it
@@ -584,17 +590,24 @@ public partial class MainWindow : Window
     // Open files: the same job in an elevated copy of the app (see Elevated in Program.cs).
     async Task<RunResult> RunElevated(Job j, Action<double, string> progress, CancellationToken token)
     {
-        string F(string kind) => Elevated.FileFor(j.Id, kind);
-        foreach (var kind in new[] { "progress", "cancel", "result" }) File.Delete(F(kind));
         Store.Save(app); // the elevated copy reads the job from the settings file
+        return (await Elevate(j.Id, $"--elevated-job {j.Id}", progress, token,
+            "Administrator permission was declined, so open files couldn't be included.")).Result!;
+    }
+
+    /// Runs the elevated copy of the app (one UAC prompt) and follows it through the files it writes.
+    async Task<Elevated.Outcome> Elevate(string id, string args, Action<double, string> progress, CancellationToken token, string declined)
+    {
+        string F(string kind) => Elevated.FileFor(id, kind);
+        foreach (var kind in new[] { "progress", "cancel", "result" }) File.Delete(F(kind));
         Process process;
         try
         {
-            process = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, $"--elevated-job {j.Id}") { UseShellExecute = true, Verb = "runas" })!;
+            process = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, args) { UseShellExecute = true, Verb = "runas" })!;
         }
         catch (Win32Exception e) when (e.NativeErrorCode == 1223)
         {
-            throw new InvalidOperationException("Administrator permission was declined, so open files couldn't be included.");
+            throw new InvalidOperationException(declined);
         }
         while (!process.HasExited)
         {
@@ -608,14 +621,14 @@ public partial class MainWindow : Window
             catch (Exception e) when (e is IOException or FormatException) { } // not written yet, or mid-write
         }
         var outcome = File.Exists(F("result")) ? JsonSerializer.Deserialize<Elevated.Outcome>(File.ReadAllText(F("result"))) : null;
-        foreach (var kind in new[] { "progress", "cancel", "result" }) File.Delete(F(kind));
+        foreach (var kind in new[] { "progress", "cancel", "result", "request" }) File.Delete(F(kind));
         if (outcome == null) throw new InvalidOperationException("The administrator copy of Backup Labs ended without a result.");
         if (outcome.Cancelled) throw new OperationCanceledException();
         if (outcome.Error != null) throw new InvalidOperationException(outcome.Error);
-        return outcome.Result!;
+        return outcome;
     }
 
-    internal static string Size(long b) => b < 1024 ? $"{b} B" : b < 1 << 20 ? $"{b / 1024.0:0.#} KB" : b < 1 << 30 ? $"{b / 1048576.0:0.#} MB" : $"{b / 1073741824.0:0.##} GB";
+    internal static string Size(long b) => Engine.Size(b);
 
     void Run_Click(object sender, RoutedEventArgs e)
     {
@@ -661,7 +674,8 @@ public partial class MainWindow : Window
     void ShowRestore(bool on)
     {
         RestorePanel.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
-        MainView.Visibility = on ? Visibility.Hidden : Visibility.Visible;
+        if (!cloning) ClonePanel.Visibility = Visibility.Collapsed; // a running clone keeps its panel
+        MainView.Visibility = on || cloning ? Visibility.Hidden : Visibility.Visible;
     }
 
     void RestoreMode_Checked(object sender, RoutedEventArgs e)
@@ -852,6 +866,8 @@ public partial class MainWindow : Window
     {
         exiting = true;
         cts?.Cancel(); // an unfinished backup's .partial is cleaned up by the next run
+        // an elevated clone outlives us: tell it to stop, rather than leave it writing a disk unattended
+        if (cloneId != null) try { File.WriteAllText(Elevated.FileFor(cloneId, "cancel"), ""); } catch (IOException) { }
         foreach (var w in watchers) w.Dispose();
         tray.Visible = false;
         tray.Dispose();

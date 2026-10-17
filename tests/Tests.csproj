@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="..\Engine.cs" />
     <Compile Include="..\Crypto.cs" />
+    <Compile Include="..\Clone.cs" />
     <Compile Include="..\Ecosystem.cs" />
     <Compile Include="..\Updater.cs" />
   </ItemGroup>

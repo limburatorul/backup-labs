@@ -1,6 +1,9 @@
 using System.IO.Compression;
 using Backup;
 
+// Disk cloning on virtual disks. Needs admin: Tests.exe --clone <result file>
+if (args.Length >= 2 && args[0] == "--clone") return CloneTests.Run(args[1], args.Length > 2 ? args[2] : null);
+
 // Open files through a shadow copy. Needs admin, so it runs on its own: Tests.exe --vss <result file>
 if (args.Length == 2 && args[0] == "--vss")
 {
@@ -16,9 +19,12 @@ if (args.Length == 2 && args[0] == "--vss")
             var plain = Engine.Run(new RunOptions(new[] { vsrc }, Path.Combine(vroot, "plain")), _ => { }, null, default);
             var shadow = Engine.Run(new RunOptions(new[] { vsrc }, Path.Combine(vroot, "shadow")) { OpenFiles = true }, _ => { }, null, default);
             var copied = Path.Combine(shadow.Snapshot, Engine.RelPath(vsrc), "locked.pst");
-            outcome = plain.Failed == 1 && shadow.Failed == 0 && File.ReadAllText(copied) == "mail database"
-                ? "ok   a file held open by another program is copied through a shadow copy"
-                : $"FAIL plain failed={plain.Failed}, shadow failed={shadow.Failed}";
+            Thread.Sleep(1100);
+            // a second shadow copy in the same process: it used to be made and then fail, staying on the disk
+            var second = Engine.Run(new RunOptions(new[] { vsrc }, Path.Combine(vroot, "shadow")) { OpenFiles = true }, _ => { }, null, default);
+            outcome = plain.Failed == 1 && shadow.Failed == 0 && second.Failed == 0 && File.ReadAllText(copied) == "mail database"
+                ? "ok   a file held open by another program is copied through a shadow copy, twice in a row"
+                : $"FAIL plain failed={plain.Failed}, shadow failed={shadow.Failed}, second failed={second.Failed}";
         }
         catch (Exception e) { outcome = "FAIL " + e; }
     }
@@ -233,6 +239,43 @@ Check(CheckFails(Serve(502, "")), "update check: 5xx is a failure");
 Check(CheckFails(Serve(200, "<html>")), "update check: an unreadable answer is a failure");
 Updater.Feed = Serve(200, "{\"tag_name\":\"v0.0.1\",\"body\":\"\",\"assets\":[{\"name\":\"BackupLabs-0.0.1-setup.exe\",\"browser_download_url\":\"x\",\"size\":1}]}");
 Check(Updater.Check(manual: true).GetAwaiter().GetResult() == null, "update check: nothing newer is not a failure");
+
+// ---- disk cloning: the parts that need no administrator ----
+Check(Clone.Crc32("123456789"u8) == 0xCBF43926, "CRC-32 matches the standard check value");
+{
+    var disk = CloneTests.MakeGpt(4096, (new Guid("ebd0a0a2-b9e5-4433-87c0-68b6b72699c7"), 2048, 2559), (new Guid("de94bba4-06d1-4d40-a16a-bfd50179d6ac"), 2560, 3071));
+    var gpt = Clone.Gpt.Parse(disk[..(1 << 20 > disk.Length ? disk.Length : 1 << 20)], 512)!;
+    Check(gpt != null && gpt.Parts().Count() == 2 && gpt.LastUsed == 3071, "a GPT table is read: two partitions, the last ending at sector 3071");
+    Check(Clone.Needed(disk, 512, disk.Length) == (3071 + 1 + 32 + 1) * 512L, "the space a GPT disk needs ends with its backup table");
+    var bigger = new byte[8192 * 512];
+    disk.AsSpan(0, 34 * 512).CopyTo(bigger);
+    gpt!.Move(1, 8192 - 33 - 512 - 1 - 7); // the recovery partition, to near the new end
+    foreach (var (lba, data) in gpt.Relocated(8192, disk[..512])) data.CopyTo(bigger, lba * 512);
+    Check(CloneTests.ValidGpt(bigger, 512, 8192, out var why), "fitted to a bigger disk, both GPT headers and tables check out" + (why == "" ? "" : $" ({why})"));
+    var moved = Clone.Gpt.Parse(bigger[..(34 * 512)], 512)!.Parts().ToList();
+    Check(moved[1].First == 8192 - 33 - 512 - 1 - 7 && moved[1].Last - moved[1].First == 511, "the moved partition keeps its length at its new place");
+    var mbr = new byte[512];
+    mbr[510] = 0x55; mbr[511] = 0xAA; mbr[446 + 4] = 0x0C;
+    BitConverter.GetBytes(2048u).CopyTo(mbr, 446 + 8); BitConverter.GetBytes(10000u).CopyTo(mbr, 446 + 12);
+    Check(Clone.Needed(mbr, 512, 1L << 30) == (2048 + 10000) * 512L, "an MBR card needs up to the end of its last partition");
+}
+var cloneDisks = Clone.Disks();
+var system = cloneDisks.FirstOrDefault(d => d.System);
+Check(system != null && system.Parts.Count > 0, "the disk list finds the disk Windows runs from, with its partitions");
+if (system != null)
+{
+    var other = cloneDisks.FirstOrDefault(d => !d.System && !d.Boot);
+    Check(Clone.Problem(new CloneRequest("ImageToDisk", -1, Path.Combine(root, "x.img"), system.Number, null, false, true, false, "", system.Id), cloneDisks) != null,
+          "nothing is ever written to the disk Windows runs from");
+    File.WriteAllBytes(Path.Combine(root, "x.img"), new byte[1 << 20]);
+    Check(Clone.Problem(new CloneRequest("ImageToDisk", -1, Path.Combine(root, "x.img"), system.Number, null, false, true, false, "", system.Id), cloneDisks)!.Contains("Windows runs from"),
+          "an image can't be written onto the system disk");
+    Check(Clone.Problem(new CloneRequest("DiskToImage", system.Number, null, -1, Path.Combine(Path.GetPathRoot(Environment.SystemDirectory)!, "x.img"), false, true, false, system.Id, ""), cloneDisks) != null,
+          "an image isn't saved on the disk it copies");
+    if (other != null)
+        Check(Clone.Problem(new CloneRequest("DiskToDisk", other.Number, null, other.Number, null, false, true, false, other.Id, other.Id), cloneDisks) != null,
+              "a disk isn't cloned onto itself");
+}
 
 foreach (var f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);
 Directory.Delete(root, true);
