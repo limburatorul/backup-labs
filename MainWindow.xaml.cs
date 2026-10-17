@@ -53,7 +53,7 @@ public partial class MainWindow : Window
         ShowWorksWith();
 
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!)!;
-        var menu = new Forms.ContextMenuStrip { Renderer = new Forms.ToolStripProfessionalRenderer(new DarkMenu()), ForeColor = Drawing.Color.FromArgb(0xE8, 0xEE, 0xF6), ShowImageMargin = false };
+        var menu = TrayMenu.Create();
         menu.Items.Add("Open", null, (_, _) => ShowWindow());
         menu.Items.Add("Back up all jobs now", null, (_, _) => { foreach (var j in app.Jobs) j.Requested = true; Pump(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
@@ -878,25 +878,5 @@ public partial class MainWindow : Window
         Dwm(h, 33, 2);                                   // rounded corners
         Dwm(h, 34, 0x003A2F2A);                          // border, 0x00BBGGRR
         Dwm(h, 36, 0x00F6EEE8);                          // caption text
-    }
-
-    // Tray menu in the app palette; the gradient overrides are what stop the blue Windows hover.
-    sealed class DarkMenu : Forms.ProfessionalColorTable
-    {
-        static readonly Drawing.Color Bg = Drawing.Color.FromArgb(0x14, 0x18, 0x21), Hi = Drawing.Color.FromArgb(0x24, 0x34, 0x52), Line = Drawing.Color.FromArgb(0x2A, 0x2F, 0x3A);
-        public override Drawing.Color ToolStripDropDownBackground => Bg;
-        public override Drawing.Color ImageMarginGradientBegin => Bg;
-        public override Drawing.Color ImageMarginGradientMiddle => Bg;
-        public override Drawing.Color ImageMarginGradientEnd => Bg;
-        public override Drawing.Color MenuBorder => Line;
-        public override Drawing.Color MenuItemBorder => Hi;
-        public override Drawing.Color MenuItemSelected => Hi;
-        public override Drawing.Color MenuItemSelectedGradientBegin => Hi;
-        public override Drawing.Color MenuItemSelectedGradientEnd => Hi;
-        public override Drawing.Color MenuItemPressedGradientBegin => Hi;
-        public override Drawing.Color MenuItemPressedGradientMiddle => Hi;
-        public override Drawing.Color MenuItemPressedGradientEnd => Hi;
-        public override Drawing.Color SeparatorDark => Line;
-        public override Drawing.Color SeparatorLight => Line;
     }
 }
