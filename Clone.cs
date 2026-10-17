@@ -676,7 +676,13 @@ public static class Clone
                     dynamic input = part.Methods_.Item("Resize").InParameters.SpawnInstance_();
                     input.Properties_.Item("Size").Value = max.ToString(CultureInfo.InvariantCulture);
                     dynamic result = part.ExecMethod_("Resize", input);
-                    if (L(result.Properties_.Item("ReturnValue").Value) != 0) break;
+                    var code = L(result.Properties_.Item("ReturnValue").Value);
+                    if (code != 0)
+                    {   // Windows grows NTFS (and ReFS) only: an exFAT or FAT32 card keeps its size
+                        notes.Add($"The partition kept its size ({Engine.Size(now)}): Windows can only grow NTFS volumes. The rest of the disk is free space; format it as a new volume in Disk Management if you want to use it.");
+                        log($"Disk {disk}: resize refused, code {code}");
+                        return;
+                    }
                     notes.Add($"The partition grew from {Engine.Size(now)} to {Engine.Size(max)}, file system included.");
                     log($"Disk {disk}: grew the partition at {offset} to {max}");
                     return;

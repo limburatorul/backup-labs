@@ -40,6 +40,7 @@ public partial class MainWindow : Window
     readonly DispatcherTimer updateTimer = new() { Interval = TimeSpan.FromMinutes(60) };
     UpdateDialog? updateDialog;
     bool exiting;
+    string? fullDrive; // the drive the last "backup drive is full" balloon was about, for its click
 
     public bool Busy => cts != null;
 
@@ -50,6 +51,7 @@ public partial class MainWindow : Window
         job = app.Jobs[0];
         VersionText.Text = "v" + Updater.Current;
         Ecosystem.WriteCard(Updater.Current.ToString());
+        Ecosystem.WriteJobs(app.Jobs.Select(j => j.Shared())); // a PC where they were never shared yet
         ShowWorksWith();
 
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!)!;
@@ -60,6 +62,8 @@ public partial class MainWindow : Window
         menu.Items.Add("Exit", null, (_, _) => Exit());
         tray = new Forms.NotifyIcon { Icon = icon, Text = "Backup Labs", Visible = true, ContextMenuStrip = menu };
         tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) ShowWindow(); };
+        tray.BalloonTipClicked += (_, _) => { if (fullDrive != null && Ecosystem.Exe("spacescan") is string exe) OpenInSpaceScan(exe, fullDrive); fullDrive = null; };
+        tray.BalloonTipClosed += (_, _) => fullDrive = null;
 
         AutostartBox.IsChecked = Registry.CurrentUser.OpenSubKey(RunKey)?.GetValue(RunValue) != null;
         if (AutostartBox.IsChecked == true) SetAutostart(true); // the exe may have moved since
@@ -178,6 +182,7 @@ public partial class MainWindow : Window
     void Save()
     {
         Store.Save(app);
+        Ecosystem.WriteJobs(app.Jobs.Select(j => j.Shared()));
         UpdateJobStatuses();
     }
 
@@ -205,7 +210,16 @@ public partial class MainWindow : Window
     {
         var list = items.ToList();
         foreach (var spec in list.Where(l => l.StartsWith('{')).Select(Ecosystem.ReadSpec).OfType<JobSpec>()) JobFrom(spec);
-        var sources = Ecosystem.Existing(list.Where(l => !l.StartsWith('{')));
+        // "job:<id>": that job on screen, as it is
+        if (list.LastOrDefault(l => l.StartsWith("job:")) is string ask && app.Jobs.FirstOrDefault(x => x.Id == ask[4..]) is Job asked)
+        {
+            job = asked;
+            JobList.SelectedItem = asked;
+            ShowRestore(false);
+            ShowJob();
+            ShowWindow();
+        }
+        var sources = Ecosystem.Existing(list.Where(l => !l.StartsWith('{') && !l.StartsWith("job:")));
         if (sources.Count == 0) return;
         var j = BlankJob();
         j.Name = FolderName(sources[0]);
@@ -362,6 +376,20 @@ public partial class MainWindow : Window
         }
         Sister("shelf", "Shelf", installed.Contains("shelf"), "keeps the game saves job in step with your games", "would back up every game's saves in one job");
         Sister("filelabs", "File Labs", installed.Contains("filelabs") || FileLabsExe() != null, "opens your backups", "would open your backups");
+        // SpaceScan: its name opens it on the job's backup drive, when it is here
+        var space = Line();
+        if (Ecosystem.Exe("spacescan") is string spaceScan)
+        {
+            var link = new Hyperlink(new Run("SpaceScan")) { Style = (Style)FindResource("Quiet") };
+            link.Click += (_, _) => OpenInSpaceScan(spaceScan, job.Destination);
+            space.Inlines.Add(link);
+            space.Inlines.Add(" · shows what fills the backup drive, and names your backup folders");
+        }
+        else
+        {
+            space.Inlines.Add(SiteLink("SpaceScan", Page("spacescan")));
+            space.Inlines.Add(" · would show what fills the backup drive");
+        }
 
         var offers = Paid.Where(p => !installed.Contains(p.Id)).Take(4).ToList();
         if (bought && offers.Count > 0)
@@ -374,6 +402,15 @@ public partial class MainWindow : Window
                 t.Inlines.Add(SiteLink(offers[i].Name, Page(offers[i].Id, offers[i].Id == "shelf" ? "SECOND30SHELF" : "SECOND30")));
             }
         }
+    }
+
+    /// SpaceScan scanning the backup folder, or its drive when the folder isn't there (yet).
+    static void OpenInSpaceScan(string exe, string destination)
+    {
+        var path = Directory.Exists(destination) ? destination : Path.IsPathFullyQualified(destination) ? Path.GetPathRoot(destination) : null;
+        var start = new ProcessStartInfo(exe);
+        if (path != null && Directory.Exists(path)) start.ArgumentList.Add(path); // ArgumentList: a drive root ends in a backslash
+        Process.Start(start);
     }
 
     Hyperlink SiteLink(string text, string url)
@@ -575,11 +612,22 @@ public partial class MainWindow : Window
             j.RetryAfter = DateTime.Now.AddHours(Math.Max(1, j.IntervalHours)); // skip this slot, don't restart in a minute
             Store.Log($"{j.Name}: backup cancelled");
         }
+        catch (Exception e) when (Engine.DiskFull(e) || e.Message == Elevated.DriveFull)
+        {   // retrying in half an hour won't help: say so, and offer SpaceScan to see what fills the drive
+            j.LastResult = "Failed: the backup drive is full";
+            j.RetryAfter = DateTime.Now.AddHours(Math.Max(1, j.IntervalHours));
+            Store.Log($"{j.Name}: backup failed: the backup drive is full ({j.Destination})");
+            var spaceScan = Ecosystem.Exe("spacescan") != null;
+            fullDrive = spaceScan ? j.Destination : null;
+            tray.ShowBalloonTip(8000, $"{j.Name}: the backup drive is full",
+                spaceScan ? "Click to see what fills it, in SpaceScan." : "Free some space on it, or keep fewer backups.", Forms.ToolTipIcon.Error);
+        }
         catch (Exception e)
         {
             j.LastResult = "Failed: " + e.Message;
             j.RetryAfter = DateTime.Now.AddMinutes(30);
             Store.Log($"{j.Name}: backup failed: {e}");
+            fullDrive = null;
             tray.ShowBalloonTip(5000, $"{j.Name}: backup failed", e.Message + " Retrying in 30 minutes.", Forms.ToolTipIcon.Error);
         }
         Save();

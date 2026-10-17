@@ -38,6 +38,13 @@ static class Program
             }
             catch (Exception e) when (e is IOException or UnauthorizedAccessException or ArgumentException) { Store.Log("--job-from: " + e.Message); }
         }
+        // a sister app asking for one job on screen (SpaceScan's "Show in Backup Labs")
+        var shown = Array.IndexOf(args, "--show-job");
+        if (shown >= 0 && shown + 1 < args.Length)
+        {
+            paths.Remove(args[shown + 1]);
+            if (Ecosystem.IsJobId(args[shown + 1])) paths.Add("job:" + args[shown + 1]);
+        }
         if (!first) { Store.Leave(paths.ToArray()); show.Set(); return 0; } // the running instance comes forward and takes them
 
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
@@ -78,6 +85,10 @@ public sealed class Job
     [JsonIgnore] public string Status { get; set; } = "";
 
     public string? PlainPassword() => Password == "" ? null : Crypto.Unprotect(Password);
+
+    public SharedJob Shared() => new(Id, Name, Sources, Destination, Format.ToLowerInvariant(),
+        LastRun?.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
+        LastRun == null && LastResult == "" ? null : LastResult.StartsWith("Failed") ? "failed" : LastResult.StartsWith("Cancelled") ? "cancelled" : "ok");
 
     public RunOptions Options() => new(Sources, Destination)
     {
@@ -190,6 +201,9 @@ static class Elevated
 
     public static string FileFor(string id, string kind) => Path.Combine(Store.DataDir, $"elevated-{id}.{kind}");
 
+    /// What the elevated copy says for a full disk; Windows' own message is in the user's language.
+    public const string DriveFull = "The backup drive is full.";
+
     public static int Run(string jobId) => Serve(jobId, "Backup with open files", (progress, ct) =>
     {
         var job = Store.Load().Jobs.FirstOrDefault(j => j.Id == jobId) ?? throw new InvalidOperationException("The job no longer exists.");
@@ -217,7 +231,7 @@ static class Elevated
             }, cts.Token);
         }
         catch (OperationCanceledException) { outcome = new Outcome(null, null, true); }
-        catch (Exception e) { outcome = new Outcome(null, e.Message, false); Store.Log($"{what} failed: {e}"); }
+        catch (Exception e) { outcome = new Outcome(null, Engine.DiskFull(e) ? DriveFull : e.Message, false); Store.Log($"{what} failed: {e}"); }
         File.WriteAllText(FileFor(id, "result"), JsonSerializer.Serialize(outcome));
         return 0;
     }

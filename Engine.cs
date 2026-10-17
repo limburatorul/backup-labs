@@ -173,8 +173,8 @@ public static class Engine
             else if (from != null && Same(f, from) && Link(to, from, st, log)) st.Linked++;
             else { f.CopyTo(to); st.Copied++; st.Bytes += f.Length; }
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
-        {
+        catch (Exception ex) when ((ex is IOException or UnauthorizedAccessException) && !DiskFull(ex))
+        {   // a full backup drive fails every file after it: that ends the backup, with one clear reason
             st.Failed++; log($"Skipped {real}: {ex.Message}");
         }
         Advance(st, f.Length, real, progress);
@@ -394,6 +394,9 @@ public static class Engine
 
     /// Where a file in a backup came from, for display.
     public static string Original(string rel) => Target(rel, null) ?? rel;
+
+    /// The disk being written to is full (ERROR_DISK_FULL, ERROR_HANDLE_DISK_FULL).
+    public static bool DiskFull(Exception e) => e.HResult is unchecked((int)0x80070070) or unchecked((int)0x80070027);
 
     public static string Size(long b) => b < 1024 ? $"{b} B" : b < 1 << 20 ? $"{b / 1024.0:0.#} KB" : b < 1 << 30 ? $"{b / 1048576.0:0.#} MB" : b < 1L << 40 ? $"{b / 1073741824.0:0.##} GB" : $"{b / 1099511627776.0:0.##} TB";
 

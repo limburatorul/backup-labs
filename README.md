@@ -24,7 +24,16 @@ Screenshots, a comparison with other backup tools and the full guide: **[protago
   permission at each such backup.
 - **Restore** a whole backup to the original places or to another folder, or **find one file** and bring
   back any of its versions.
+- **Clone a drive:** an SD card, a USB stick, a hard disk or SSD, sector by sector, to a raw `.img` (Etcher,
+  Win32 Disk Imager and `dd` read it) or straight onto another disk, and an image back onto a disk. Every
+  sector, or only the space NTFS uses. The disk Windows runs from can be copied (through a shadow copy),
+  never written to. Onto a bigger disk, the GPT backup table moves to the new end, a recovery partition at
+  the end moves along, and the partition before it grows, file system included; onto a smaller one, as long
+  as the partitions fit. Verified by reading everything back. Needs administrator permission.
 - Lives in the tray, starts with Windows if you want, progress bar and cancel for everything.
+- **Works with [SpaceScan](https://protagonistlabs.app/spacescan/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs):**
+  it names your backup folders and the folders you back up, backs a folder up from its row menu, and opens
+  on a backup drive that's full.
 
 Nothing leaves your computer: no account, no cloud, no telemetry. The only network call is the update check
 against this repository's releases.

@@ -211,6 +211,41 @@ static class CloneTests
             Check(Same(original, Hashes(Mounted("small"))), "image → a smaller disk the partitions fit on holds the same files");
             Detach("small");
 
+            // MBR, the way SD cards and sticks come: NTFS grows onto a bigger disk, exFAT keeps its size and says so
+            foreach (var fs in new[] { "ntfs", "exfat" })
+            {
+                var card = "card-" + fs;
+                Create(card, 1024);
+                Diskpart($"select vdisk file=\"{Vhd(card)}\"\nconvert mbr\ncreate partition primary\nformat fs={fs} quick label=BLCARD\nassign\n");
+                var cardDisk = Disk(card);
+                var cardRoot = cardDisk.Parts.First(p => p.Letter != '\0').Letter + @":\";
+                Directory.CreateDirectory(cardRoot + "files");
+                for (int i = 0; i < 8; i++) { var b = new byte[rng.Next(1, 1 << 20)]; rng.NextBytes(b); File.WriteAllBytes($@"{cardRoot}files\c{i}.bin", b); }
+                var cardFiles = Hashes(cardRoot);
+                var cardImg = Path.Combine(work, card + ".img");
+                Clone.Run(Req("DiskToImage", cardDisk, null, null, cardImg, false, false), log.Add, null, default);
+                Detach(card);
+                var bigger = card + "-big";
+                Create(bigger, 2048);
+                var onto = Clone.Run(Req("ImageToDisk", null, cardImg, Disk(bigger), null, false, true), log.Add, null, default);
+                Check(Same(cardFiles, Hashes(Mounted(bigger))), $"MBR {fs} card image → a disk twice its size holds the same files");
+                var grownPart = Disk(bigger).Parts.First(p => p.Letter != '\0');
+                Check(fs == "ntfs" ? grownPart.Size > 1800L << 20 : grownPart.Size < 1100L << 20 && onto.Notes.Any(n => n.Contains("only grow NTFS")),
+                      fs == "ntfs" ? $"MBR NTFS grew onto the new space ({Engine.Size(grownPart.Size)})" : $"exFAT kept its size and the note says why ({string.Join(" / ", onto.Notes)})");
+                Detach(bigger);
+            }
+
+            // a backup onto a drive that fills up stops at once, with that reason, instead of skipping every file after it
+            Create("full", 64);
+            Diskpart($"select vdisk file=\"{Vhd("full")}\"\nconvert gpt\ncreate partition primary\nformat fs=ntfs quick label=BLFULL\nassign\n");
+            var fullRoot = Disk("full").Parts.First(p => p.Letter != '\0').Letter + @":\";
+            var many = Path.Combine(work, "many");
+            Directory.CreateDirectory(many);
+            for (int i = 0; i < 25; i++) { var b = new byte[4 << 20]; rng.NextBytes(b); File.WriteAllBytes(Path.Combine(many, $"m{i}.bin"), b); }
+            try { Engine.Run(new RunOptions(new[] { many }, fullRoot + "backups"), log.Add, null, default); Check(false, "a full backup drive stops the backup"); }
+            catch (IOException e) when (Engine.DiskFull(e)) { Check(true, "a full backup drive stops the backup with that reason"); }
+            Detach("full");
+
             Create("tiny", 600);
             var tiny = Disk("tiny");
             Check(Clone.Problem(Req("ImageToDisk", null, img1, tiny, null, false, false), Clone.Disks()) is string p && p.Contains("too small"), "a disk too small for the partitions is refused");
@@ -218,7 +253,7 @@ static class CloneTests
         catch (Exception e) { Check(false, "clone test stopped: " + e); }
         finally
         {
-            foreach (var n in new[] { "src", "same", "big", "small", "tiny" }) Detach(n);
+            foreach (var n in new[] { "src", "same", "big", "small", "tiny", "card-ntfs", "card-ntfs-big", "card-exfat", "card-exfat-big", "full" }) Detach(n);
             lines.Add("     log: " + string.Join(" | ", log));
             File.WriteAllLines(resultFile, lines);
             try { Directory.Delete(work, true); } catch (Exception) { }

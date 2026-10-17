@@ -11,6 +11,10 @@ namespace Backup;
 /// A job another app asks for: `--job-from <file.json>` with { id?, name, sources }.
 public sealed record JobSpec(string? Id, string Name, List<string> Sources);
 
+/// A job as the sister apps see it in data\backuplabs.jobs.json. LastRun is ISO 8601 UTC; LastResult is
+/// "ok", "failed" or "cancelled", both null before the first run.
+public sealed record SharedJob(string Id, string Name, List<string> Sources, string Destination, string Format, string? LastRun, string? LastResult);
+
 // The Protagonist Labs folder, %APPDATA%\ProtagonistLabs: every app leaves its card in apps\<id>.json and
 // what it shares in data\<id>.<kind>.json. No server, nothing sent anywhere. Files written by other apps
 // are not trusted: missing, unreadable or odd means absent, never an error on screen.
@@ -37,12 +41,54 @@ static class Ecosystem
                 ["edition"] = "free",
                 ["paid"] = false,
                 ["page"] = "https://protagonistlabs.app/backuplabs/",
-                ["commands"] = new Dictionary<string, string[]> { ["job-from"] = new[] { "--job-from", "{file}" } },
+                ["commands"] = new Dictionary<string, string[]>
+                {
+                    ["job-from"] = new[] { "--job-from", "{file}" },
+                    ["back-up"] = new[] { "{path}" },           // a new job with that folder or file, waiting for a destination
+                    ["show-job"] = new[] { "--show-job", "{id}" }, // the window, on that job (ids from data\backuplabs.jobs.json)
+                },
             }, new JsonSerializerOptions { WriteIndented = true }));
             File.Move(file + ".tmp", file, true);
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException) { }
     });
+
+    /// The jobs, for the sister apps (SpaceScan names backup folders and backed-up folders with them):
+    /// data\backuplabs.jobs.json. Written whenever they change and after every run; small, so on the spot.
+    public static void WriteJobs(IEnumerable<SharedJob> jobs)
+    {
+        try
+        {
+            var file = Path.Combine(Root, "data", "backuplabs.jobs.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file + ".tmp", JobsJson(jobs, DateTime.UtcNow));
+            File.Move(file + ".tmp", file, true);
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { } // a courtesy to the sisters, never a failure here
+    }
+
+    public static string JobsJson(IEnumerable<SharedJob> jobs, DateTime now) => JsonSerializer.Serialize(new Dictionary<string, object>
+    {
+        ["schema"] = 1,
+        ["updated"] = now.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+        ["jobs"] = jobs.ToList(),
+    }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
+
+    /// A sister's exe from its card, or null when it isn't installed (no card, a broken one, or the exe is gone).
+    public static string? Exe(string id)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(Root, "apps", id + ".json")));
+            var c = doc.RootElement;
+            return c.ValueKind == JsonValueKind.Object && c.TryGetProperty("schema", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() == 1
+                && c.TryGetProperty("exe", out var exe) && exe.ValueKind == JsonValueKind.String && File.Exists(exe.GetString()) ? exe.GetString() : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or FormatException) { return null; }
+    }
+
+    /// A job id another app may name (--show-job): the same plain characters as in a spec.
+    public static bool IsJobId(string id) => Regex.IsMatch(id, "^[A-Za-z0-9_-]{1,64}$");
 
     /// The paths that can be backed up: full paths that exist, each once.
     public static List<string> Existing(IEnumerable<string> paths) =>

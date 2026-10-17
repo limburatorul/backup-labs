@@ -240,6 +240,19 @@ Check(CheckFails(Serve(200, "<html>")), "update check: an unreadable answer is a
 Updater.Feed = Serve(200, "{\"tag_name\":\"v0.0.1\",\"body\":\"\",\"assets\":[{\"name\":\"BackupLabs-0.0.1-setup.exe\",\"browser_download_url\":\"x\",\"size\":1}]}");
 Check(Updater.Check(manual: true).GetAwaiter().GetResult() == null, "update check: nothing newer is not a failure");
 
+// ---- what SpaceScan reads: data\backuplabs.jobs.json ----
+{
+    var json = Ecosystem.JobsJson(new[] { new SharedJob("a1", "Photos", new() { @"D:\Photos" }, @"E:\Backups", "folders", "2026-10-17T08:00:00Z", "ok") }, new DateTime(2026, 10, 17, 9, 0, 0));
+    using var doc = System.Text.Json.JsonDocument.Parse(json);
+    var r = doc.RootElement;
+    var j = r.GetProperty("jobs")[0];
+    Check(r.GetProperty("schema").GetInt32() == 1 && r.GetProperty("updated").GetString() == "2026-10-17T09:00:00Z"
+          && j.GetProperty("id").GetString() == "a1" && j.GetProperty("sources")[0].GetString() == @"D:\Photos"
+          && j.GetProperty("destination").GetString() == @"E:\Backups" && j.GetProperty("lastRun").GetString() == "2026-10-17T08:00:00Z"
+          && j.GetProperty("lastResult").GetString() == "ok", "the shared jobs file has the contract's shape (schema 1, camelCase, UTC times)");
+    Check(Ecosystem.IsJobId("a1b2-c_3") && !Ecosystem.IsJobId("..\\x") && !Ecosystem.IsJobId("a\" --x"), "--show-job takes plain ids only");
+}
+
 // ---- disk cloning: the parts that need no administrator ----
 Check(Clone.Crc32("123456789"u8) == 0xCBF43926, "CRC-32 matches the standard check value");
 {
