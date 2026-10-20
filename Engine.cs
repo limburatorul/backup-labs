@@ -14,7 +14,7 @@ namespace Backup;
 public sealed record RunOptions(IReadOnlyList<string> Sources, string Destination)
 {
     public CompressionLevel? Zip { get; init; }                      // null: incremental folders
-    public string? Password { get; init; }                           // with Zip: an encrypted .bkl archive
+    public string? Password { get; init; }                           // with Zip: an encrypted archive
     public IReadOnlyList<string> Exclude { get; init; } = Array.Empty<string>();
     public bool SmartKeep { get; init; }                             // else: the last Keep backups
     public int Keep { get; init; } = 30;
@@ -31,8 +31,9 @@ public sealed record FileVersion(string Snapshot, string Rel, DateTime Modified,
 
 // Every backup is a complete folder tree named by its date. Files unchanged since the previous
 // backup (same size + modified time) are NTFS hard links to it, so they cost no space, and any
-// backup can be deleted without breaking the others. Archive mode writes one full .zip (or an
-// encrypted .bkl) per run instead.
+// backup can be deleted without breaking the others. Archive mode writes one full archive per run
+// instead: <stamp>.bkl, a plain zip or an encrypted one (told apart by the first bytes, see Encrypted).
+// Before 1.3.0 plain archives were <stamp>.zip; those are still listed, restored and pruned.
 public static class Engine
 {
     const string Stamp = "yyyy-MM-dd_HHmmss";
@@ -71,7 +72,7 @@ public static class Engine
 
         var previous = Snapshots(dest);
         previous.Reverse();
-        var ext = o.Zip == null ? "" : o.Password != null ? ".bkl" : ".zip";
+        var ext = o.Zip == null ? "" : ".bkl";
         var final = Path.Combine(dest, DateTime.Now.ToString(Stamp, CultureInfo.InvariantCulture)) + ext;
         if (Path.Exists(final)) throw new InvalidOperationException("A backup was made less than a second ago.");
         var work = final + Partial;
@@ -245,12 +246,39 @@ public static class Engine
     public static bool IsArchive(string snapshot) =>
         snapshot.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) || snapshot.EndsWith(".bkl", StringComparison.OrdinalIgnoreCase);
 
+    /// Encrypted or plain, by the file's first bytes and never its name: a .bkl is either, and a renamed
+    /// file (a plain one called .bkl, an encrypted one called .zip) is still read right.
+    public static bool Encrypted(string archive)
+    {
+        using var f = File.OpenRead(archive);
+        Span<byte> head = stackalloc byte[8];
+        return f.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) == head.Length && Crypto.IsHeader(head);
+    }
+
     static ZipArchive OpenArchive(string snapshot, string? password)
     {
-        if (!snapshot.EndsWith(".bkl", StringComparison.OrdinalIgnoreCase)) return ZipFile.OpenRead(snapshot);
-        if (password == null) throw new InvalidOperationException("This backup is encrypted: set the job's password first.");
-        return new ZipArchive(new DecryptStream(File.OpenRead(snapshot), password), ZipArchiveMode.Read);
+        if (Encrypted(snapshot))
+        {
+            if (password == null) throw new InvalidOperationException("This backup is encrypted: its password is needed.");
+            return new ZipArchive(new DecryptStream(File.OpenRead(snapshot), password), ZipArchiveMode.Read);
+        }
+        try { return ZipFile.OpenRead(snapshot); }
+        catch (InvalidDataException) // the file can come from anywhere (a double-click in Explorer): say what it isn't
+        {
+            throw new InvalidDataException($"{Path.GetFileName(snapshot)} is not a Backup Labs backup: neither a zip nor an encrypted archive.");
+        }
     }
+
+    /// Why a path handed to `--open` is not opened, or null when it is an existing .bkl or .zip file.
+    public static string? OpenProblem(string path)
+    {
+        if (!Path.IsPathFullyQualified(path)) return "not a full path";
+        if (!(path.EndsWith(".bkl", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".zip", StringComparison.OrdinalIgnoreCase))) return "not a .bkl or .zip file";
+        return File.Exists(path) ? null : "no such file";
+    }
+
+    /// Opens the archive and lets it go: throws what restoring it would (not a backup, wrong password), before any file is written.
+    public static void Probe(string archive, string? password) => OpenArchive(archive, password).Dispose();
 
     static void CheckRestoreTarget(string snapshot, string? into)
     {
@@ -428,13 +456,13 @@ public static class Engine
 
     // ---- retention ----
 
-    // Backup folders, .zip and encrypted .bkl archives, oldest first.
+    // Backup folders and archives (.bkl, and .zip from before 1.3.0), oldest first.
     public static List<string> Snapshots(string dest) => !Directory.Exists(dest) ? new() :
         Directory.GetDirectories(dest).Where(d => IsStamp(Path.GetFileName(d)))
             .Concat(Directory.GetFiles(dest).Where(f => IsArchive(f) && IsStamp(Path.GetFileNameWithoutExtension(f))))
             .OrderBy(Path.GetFileName, StringComparer.Ordinal).ToList();
 
-    static bool IsStamp(string name) => DateTime.TryParseExact(name, Stamp, CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
+    public static bool IsStamp(string name) => DateTime.TryParseExact(name, Stamp, CultureInfo.InvariantCulture, DateTimeStyles.None, out _);
 
     /// Which backups the policy lets go. Smart: everything from the last 24 hours, the newest of each
     /// day for 30 days, the newest of each week for a year. The newest backup always stays.

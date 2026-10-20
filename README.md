@@ -12,9 +12,14 @@ Screenshots, a comparison with other backup tools and the full guide: **[protago
 - **Incremental backups you can browse.** Every backup is a normal folder named by its date. Files that
   didn't change are NTFS hard links to the previous backup, so they take no extra space, and any backup can
   be deleted without breaking the others.
-- **Or archives:** one `.zip` per backup with four compression levels, or an **encrypted** archive
-  (AES-256-GCM, key from your password with PBKDF2-SHA256, 600,000 iterations). Encrypted archives open
-  only in Backup Labs, and only with the password.
+- **Or archives:** one `.bkl` file per backup with four compression levels, or **encrypted**
+  (AES-256-GCM, key from your password with PBKDF2-SHA256, 600,000 iterations). A plain `.bkl` is an
+  ordinary zip inside: 7-Zip and other archivers open it as it is, and renamed to `.zip` it opens in
+  Explorer, so your files stay reachable without Backup Labs. Encrypted archives open only in Backup Labs,
+  and only with the password. Backups made before 1.3.0 as `.zip` are still listed, restored and pruned.
+- **Double-click a `.bkl`** and it opens in Backup Labs, on the Restore panel for that file, wherever it
+  is: restore it whole into a folder, or find one file in it. An encrypted one asks for its password. A
+  backup in one of your jobs' destinations can also go back to its original places.
 - **Several jobs**, each with its own folders, destination, format, schedule and retention.
 - **When:** manually, hourly, every 6 hours, daily or weekly; a minute after files change; and when the
   backup drive is plugged in (found again even if it comes back under another letter).
@@ -64,6 +69,15 @@ whose asset ends in `setup.exe` and checks it against the SHA-256 GitHub publish
 | `tests/` | engine checks (`--vss <file>` runs the shadow-copy check, needs admin) |
 
 Settings and the log are in `%APPDATA%\BackupLabs`.
+
+Archives are `<date>.bkl`. Plain or encrypted is told by the first 8 bytes (`BKLENC1\0` = encrypted, see
+`Crypto.cs`), never by the extension. The installer registers `.bkl` for the current user
+(`HKCU\Software\Classes\.bkl` → `BackupLabs.Backup`, "Backup Labs backup", the app's icon) and removes it on
+uninstall; opening one runs `BackupLabs.exe --open "<file>"`, which a running copy takes over.
+
+For UI checks only: `BACKUPLABS_TEST_ROOT=<folder>` runs a separate copy whose settings, log and
+ProtagonistLabs folder live in that folder, with its own single-instance names and no autostart writes, so it
+never touches or hands its arguments to your own Backup Labs.
 
 ## More from Protagonist Labs
 

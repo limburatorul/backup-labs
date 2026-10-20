@@ -219,7 +219,9 @@ public partial class MainWindow : Window
             ShowJob();
             ShowWindow();
         }
-        var sources = Ecosystem.Existing(list.Where(l => !l.StartsWith('{') && !l.StartsWith("job:")));
+        // "open:<file>": a backup opened from Explorer (checked in Program: an existing .bkl or .zip)
+        if (list.LastOrDefault(l => l.StartsWith("open:")) is string file) OpenBackup(file[5..]);
+        var sources = Ecosystem.Existing(list.Where(l => !l.StartsWith('{') && !l.StartsWith("job:") && !l.StartsWith("open:")));
         if (sources.Count == 0) return;
         var j = BlankJob();
         j.Name = FolderName(sources[0]);
@@ -466,6 +468,7 @@ public partial class MainWindow : Window
 
     static void SetAutostart(bool on)
     {
+        if (Ecosystem.TestRoot != null) return; // a test copy must not repoint the user's own autostart entry
         using var key = Registry.CurrentUser.CreateSubKey(RunKey);
         if (on) key.SetValue(RunValue, $"\"{Environment.ProcessPath}\" --tray");
         else key.DeleteValue(RunValue, false);
@@ -692,32 +695,94 @@ public partial class MainWindow : Window
     public sealed record Snapshot(string Path)
     {
         public string Name => System.IO.Path.GetFileName(Path);
-        public string Label => Engine.Date(Path).ToString("d MMMM yyyy, HH:mm:ss");
-        public string Detail => Path.EndsWith(".bkl") ? "encrypted · " + Size(new FileInfo(Path).Length)
-                              : Path.EndsWith(".zip") ? "zip · " + Size(new FileInfo(Path).Length) : "folders";
+        public string Label => When(Path, "d MMMM yyyy, HH:mm:ss");
+        public bool Encrypted { get; } = Sealed(Path); // read once: it opens the file
+        public string Detail => !Engine.IsArchive(Path) ? "folders" : (Encrypted ? "encrypted · " : "zip · ") + Size(new FileInfo(Path).Length);
     }
+
+    // the header, not the name; a file that can't be read right now (a drive going away) lists as plain and says why at restore
+    static bool Sealed(string snapshot)
+    {
+        try { return Engine.IsArchive(snapshot) && Engine.Encrypted(snapshot); }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return false; }
+    }
+
+    // a backup opened from Explorer may have been renamed: then its name stands in for its date
+    static string When(string snapshot, string format) =>
+        Engine.IsStamp(Path.GetFileNameWithoutExtension(snapshot)) ? Engine.Date(snapshot).ToString(format) : Path.GetFileName(snapshot);
 
     public sealed record VersionItem(FileVersion V)
     {
         public string Name => V.Name;
         public string Folder => System.IO.Path.GetDirectoryName(V.OriginalPath) ?? "";
         public string When => V.Modified.ToString("d MMM yyyy, HH:mm");
-        public string Detail => $"{Size(V.Size)} · backup of {Engine.Date(V.Snapshot):d MMM}";
+        public string Detail => $"{Size(V.Size)} · backup of {When(V.Snapshot, "d MMM")}";
     }
+
+    // A backup opened from Explorer, shown alone in the Restore panel wherever it is; null: the job's backups.
+    // `opener` is the job whose destination holds it, if any: only then are the original places offered,
+    // and its saved password is tried when none is typed.
+    string? opened;
+    Job? opener;
 
     void RestoreOpen_Click(object sender, RoutedEventArgs e)
     {
+        opened = null;
         var list = Engine.Snapshots(job.Destination).Select(p => new Snapshot(p)).Reverse().ToList();
+        ShowSnapshots(list, $"{job.Name}  ·  {list.Count} backup{(list.Count == 1 ? "" : "s")} in {job.Destination}", "No backups in the destination yet.");
+    }
+
+    void OpenBackup(string file)
+    {
+        opened = file;
+        opener = app.Jobs.FirstOrDefault(j => Path.IsPathFullyQualified(j.Destination)
+            && Engine.Snapshots(j.Destination).Any(s => string.Equals(Path.GetFullPath(s), file, StringComparison.OrdinalIgnoreCase)));
+        if (opener != null && opener != job) { job = opener; JobList.SelectedItem = opener; ShowJob(); }
+        var list = new List<Snapshot>();
+        string? problem = null;
+        try
+        {
+            if (!Engine.Encrypted(file)) Engine.Probe(file, null); // an encrypted one is checked with its password, at restore
+            list.Add(new Snapshot(file));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException) { problem = ex.Message; }
+        ShowSnapshots(list, $"{Path.GetFileName(file)}  ·  {Path.GetDirectoryName(file)}" + (opener != null ? $"  ·  a backup of {opener.Name}" : ""), problem ?? "");
+        ShowWindow();
+        if (OpenPasswordRow.Visibility == Visibility.Visible) OpenPassword.Focus();
+    }
+
+    void ShowSnapshots(List<Snapshot> list, string sub, string empty)
+    {
         SnapshotList.ItemsSource = list;
+        NoSnapshots.Text = empty;
         NoSnapshots.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (list.Count > 0) SnapshotList.SelectedIndex = 0;
-        RestoreSub.Text = $"{job.Name}  ·  {list.Count} backup{(list.Count == 1 ? "" : "s")} in {job.Destination}";
+        RestoreSub.Text = sub;
         RestoreStatus.Text = "";
+        VersionList.ItemsSource = null;
+        SearchHint.Text = opened == null ? "Every version of a file across all backups of this job." : "Every file in this backup whose name contains this.";
+        SearchHint.Visibility = Visibility.Visible;
+        OpenPassword.Clear();
+        OpenPasswordRow.Visibility = opened != null && list.Count > 0 && list[0].Encrypted ? Visibility.Visible : Visibility.Collapsed;
         WholeTab.IsChecked = true;
-        TargetOriginal.IsChecked = true;
-        Target_Checked(sender, e);
+        // the original places come from the archive itself; offered only for a job's own backup, not a file from anywhere
+        var original = opened == null || opener != null;
+        TargetOriginal.Visibility = original ? Visibility.Visible : Visibility.Collapsed;
+        (original ? TargetOriginal : TargetFolder).IsChecked = true;
+        Target_Checked(this, new RoutedEventArgs());
         ShowRestore(true);
     }
+
+    List<string> Shown()
+    {
+        if (opened != null) return new() { opened };
+        var list = Engine.Snapshots(job.Destination);
+        list.Reverse();
+        return list;
+    }
+
+    // the opened backup's typed password, else the job's saved one
+    string? RestorePassword() => opened != null && OpenPassword.Password != "" ? OpenPassword.Password : (opened == null ? job : opener)?.PlainPassword();
 
     void ShowRestore(bool on)
     {
@@ -748,13 +813,12 @@ public partial class MainWindow : Window
         RestoreStatus.Text = "Searching…";
         try
         {
-            var snapshots = Engine.Snapshots(job.Destination);
-            snapshots.Reverse();
-            var password = job.PlainPassword();
+            var snapshots = Shown();
+            var password = RestorePassword();
             var found = await Task.Run(() => Engine.Find(snapshots, query, password, CancellationToken.None));
             VersionList.ItemsSource = found.Take(2000).Select(v => new VersionItem(v)).ToList();
             SearchHint.Visibility = found.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-            SearchHint.Text = "Nothing by that name in any backup of this job.";
+            SearchHint.Text = opened == null ? "Nothing by that name in any backup of this job." : "Nothing by that name in this backup.";
             var files = found.Select(v => v.Rel.ToLowerInvariant()).Distinct().Count();
             RestoreStatus.Text = found.Count == 0 ? "" : $"{found.Count:N0} version{(found.Count == 1 ? "" : "s")} of {files:N0} file{(files == 1 ? "" : "s")}"
                                                     + (found.Count > 2000 ? ", showing the first 2,000" : "");
@@ -784,7 +848,7 @@ public partial class MainWindow : Window
 
     void RestoreBack_Click(object sender, RoutedEventArgs e) => ShowRestore(false);
 
-    void RestoreStart_Click(object sender, RoutedEventArgs e)
+    async void RestoreStart_Click(object sender, RoutedEventArgs e)
     {
         if (cts != null) return;
         string? into = null;
@@ -800,9 +864,9 @@ public partial class MainWindow : Window
                     "Restore", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
             try
             {
-                var to = Engine.RestoreFile(item.V, into, job.PlainPassword());
+                var to = Engine.RestoreFile(item.V, into, RestorePassword());
                 RestoreStatus.Text = "Restored to " + to;
-                Store.Log($"{job.Name}: restored {to} from {Path.GetFileName(item.V.Snapshot)}");
+                Store.Log($"{(opened == null ? job : opener)?.Name ?? "Opened backup"}: restored {to} from {item.V.Snapshot}");
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException)
             {
@@ -811,19 +875,29 @@ public partial class MainWindow : Window
             return;
         }
         if (SnapshotList.SelectedItem is not Snapshot snap) return;
+        var password = snap.Encrypted ? RestorePassword() : null;
+        if (opened != null)
+        {   // a wrong password is said here, where it can be typed again, not after the panel has closed
+            RestoreStartButton.IsEnabled = false;
+            RestoreStatus.Text = "Checking…";
+            try { await Task.Run(() => Engine.Probe(snap.Path, password)); RestoreStatus.Text = ""; }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or InvalidDataException) { RestoreStatus.Text = ex.Message; return; }
+            finally { RestoreStartButton.IsEnabled = true; }
+            if (cts != null) { RestoreStatus.Text = "A backup started meanwhile: restore when it ends."; return; }
+        }
         if (into == null && MessageBox.Show(this, $"Overwrite changed files in their original locations with the versions from {snap.Label}?",
                 "Restore", MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No) != MessageBoxResult.Yes) return;
         ShowRestore(false);
-        _ = RestoreAsync(job, snap, into);
+        // a backup from anywhere has no job: a stand-in named after the file carries the restore and its log lines
+        _ = RestoreAsync(opened == null ? job : opener ?? new Job { Name = snap.Name }, snap, into, password);
     }
 
-    async Task RestoreAsync(Job j, Snapshot snap, string? into)
+    async Task RestoreAsync(Job j, Snapshot snap, string? into, string? password)
     {
         var progress = StartJob(j, $"{j.Name}: restore of {snap.Name} to {into ?? "original locations"} started");
         var token = cts!.Token;
         try
         {
-            var password = snap.Path.EndsWith(".bkl") ? j.PlainPassword() : null;
             var r = await Task.Run(() => Engine.Restore(snap.Path, into, password, Store.Log, progress, token));
             note = $"Restored {r.Copied:N0} files ({Size(r.BytesCopied)}), {r.Linked:N0} already up to date"
                  + (r.Failed > 0 ? $", {r.Failed:N0} failed (see Log)" : "");

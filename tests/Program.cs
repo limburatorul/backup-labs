@@ -92,7 +92,7 @@ var z = Backup(new RunOptions(new[] { src }, dst) { Zip = CompressionLevel.Small
 using (var a = ZipFile.OpenRead(z.Snapshot))
 {
     var prefix = rel.Replace('\\', '/') + "/";
-    Check(z.Snapshot.EndsWith(".zip") && new StreamReader(a.GetEntry(prefix + "sub/b.txt")!.Open()).ReadToEnd() == "two", "archive holds the files");
+    Check(z.Snapshot.EndsWith(".bkl") && new StreamReader(a.GetEntry(prefix + "sub/b.txt")!.Open()).ReadToEnd() == "two", "archive holds the files");
     Check(a.GetEntry(prefix + "empty/") != null, "archive keeps empty folders");
 }
 Check(Engine.Snapshots(dst).Count == 3 && Engine.Snapshots(dst)[^1] == z.Snapshot, "archives count toward retention");
@@ -128,6 +128,72 @@ catch (Exception e) when (e is InvalidDataException or InvalidOperationException
     File.WriteAllBytes(cut, File.ReadAllBytes(file).Take(Crypto.HeaderSize + 2 * ((1 << 20) + 16)).ToArray());
     try { using var c = new DecryptStream(File.OpenRead(cut), "pw"); c.Position = (1 << 20) + 1; c.ReadByte(); Check(false, "truncation detected"); }
     catch (InvalidDataException) { Check(true, "an archive cut at a chunk boundary is detected"); }
+}
+// ---- 1.3.0: every archive is .bkl, plain or encrypted told apart by the first bytes; the old names still work ----
+{
+    var nroot = Path.Combine(root, "naming");
+    var nsrc = Path.Combine(nroot, "src");
+    Directory.CreateDirectory(nsrc);
+    var blob = new byte[300_000];
+    new Random(7).NextBytes(blob);
+    File.WriteAllBytes(Path.Combine(nsrc, "data.bin"), blob);
+    var nrel = Engine.RelPath(nsrc);
+    var ndst = Path.Combine(nroot, "dst");
+    bool Identical(string into) => File.Exists(Path.Combine(into, nrel, "data.bin")) && File.ReadAllBytes(Path.Combine(into, nrel, "data.bin")).SequenceEqual(blob);
+    string Into(string name) => Path.Combine(nroot, name);
+    bool Refused(Action a, Func<Exception, bool> right) { try { a(); return false; } catch (Exception e) { return right(e); } }
+
+    var plain = Backup(new RunOptions(new[] { nsrc }, ndst) { Zip = CompressionLevel.Optimal });
+    Check(plain.Snapshot.EndsWith(".bkl") && !Engine.Encrypted(plain.Snapshot), "a plain archive is written as <stamp>.bkl");
+    using (var a = ZipFile.OpenRead(plain.Snapshot)) Check(a.GetEntry(nrel.Replace('\\', '/') + "/data.bin") != null, "and is an ordinary zip inside, readable without Backup Labs");
+    Engine.Restore(plain.Snapshot, Into("r-plain"), null, log.Add, null, default);
+    Check(Identical(Into("r-plain")), "a plain .bkl restores byte for byte");
+    var sealedArc = Backup(new RunOptions(new[] { nsrc }, ndst) { Zip = CompressionLevel.Fastest, Password = "pw 1.3.0" });
+    Engine.Restore(sealedArc.Snapshot, Into("r-enc"), "pw 1.3.0", log.Add, null, default);
+    Check(sealedArc.Snapshot.EndsWith(".bkl") && Engine.Encrypted(sealedArc.Snapshot) && Identical(Into("r-enc")), "an encrypted .bkl still restores byte for byte");
+
+    // what 1.2 wrote: <stamp>.zip for plain archives, <stamp>.bkl for encrypted ones (same bytes as today's)
+    var odst = Path.Combine(nroot, "old");
+    Directory.CreateDirectory(odst);
+    var oldZip = Path.Combine(odst, "2026-01-01_120000.zip");
+    var oldBkl = Path.Combine(odst, "2026-01-02_120000.bkl");
+    File.Copy(plain.Snapshot, oldZip);
+    File.Copy(sealedArc.Snapshot, oldBkl);
+    Check(Engine.Snapshots(odst).SequenceEqual(new[] { oldZip, oldBkl }), "an old .zip and an old encrypted .bkl are both listed");
+    Engine.Restore(oldZip, Into("r-oldzip"), null, log.Add, null, default);
+    Engine.Restore(oldBkl, Into("r-oldbkl"), "pw 1.3.0", log.Add, null, default);
+    Check(Identical(Into("r-oldzip")) && Identical(Into("r-oldbkl")), "and both restore");
+    Check(Engine.Find(Engine.Snapshots(odst), "data", "pw 1.3.0", default).Count == 1, "find reads both (one version, unchanged across them)");
+    var newer = Backup(new RunOptions(new[] { nsrc }, odst) { Zip = CompressionLevel.Fastest, Keep = 1 });
+    Check(Engine.Snapshots(odst).SequenceEqual(new[] { newer.Snapshot }) && !File.Exists(oldZip) && !File.Exists(oldBkl), "and retention removes them like any other backup");
+
+    // the header decides, never the name
+    var odd = Path.Combine(nroot, "odd");
+    Directory.CreateDirectory(odd);
+    var zipAsBkl = Path.Combine(odd, "made-by-another-tool.bkl");
+    ZipFile.CreateFromDirectory(nsrc, zipAsBkl); // any zip, named .bkl
+    Engine.Restore(zipAsBkl, Into("r-zipasbkl"), null, log.Add, null, default);
+    Check(!Engine.Encrypted(zipAsBkl) && File.ReadAllBytes(Path.Combine(Into("r-zipasbkl"), "data.bin")).SequenceEqual(blob), "a plain zip named .bkl is read as a zip");
+    var bklAsZip = Path.Combine(odd, "renamed.zip");
+    File.Copy(sealedArc.Snapshot, bklAsZip);
+    Check(Engine.Encrypted(bklAsZip) && Refused(() => Engine.Restore(bklAsZip, Into("r-x"), null, log.Add, null, default), e => e is InvalidOperationException && e.Message.Contains("encrypted")),
+          "an encrypted archive named .zip asks for its password instead of failing as a broken zip");
+    Engine.Restore(bklAsZip, Into("r-bklaszip"), "pw 1.3.0", log.Add, null, default);
+    Check(Identical(Into("r-bklaszip")), "and restores with it");
+    var junk = Path.Combine(odd, "junk.bkl");
+    var noise = new byte[50_000];
+    new Random(3).NextBytes(noise);
+    File.WriteAllBytes(junk, noise);
+    var tiny = Path.Combine(odd, "tiny.bkl");
+    File.WriteAllBytes(tiny, new byte[] { 0x42, 0x4B });
+    bool NotABackup(Exception e) => e is InvalidDataException && e.Message.Contains("not a Backup Labs backup");
+    Check(Refused(() => Engine.Restore(junk, Into("r-junk"), null, log.Add, null, default), NotABackup)
+          && Refused(() => Engine.Find(new[] { junk }, "x", null, default), NotABackup)
+          && Refused(() => Engine.Probe(junk, null), NotABackup) && Refused(() => Engine.Probe(tiny, null), NotABackup)
+          && !Directory.Exists(Into("r-junk")), "random bytes (or two bytes) named .bkl are refused clearly, nothing written");
+    Check(Engine.OpenProblem(junk) == null && Engine.OpenProblem(bklAsZip) == null && Engine.OpenProblem("relative.bkl") != null
+          && Engine.OpenProblem(Path.Combine(odd, "missing.bkl")) != null && Engine.OpenProblem(Path.Combine(nsrc, "data.bin")) != null,
+          "--open takes only an existing .bkl or .zip given by its full path");
 }
 var saved = Crypto.Protect("s3cret");
 Check(saved != "s3cret" && Crypto.Unprotect(saved) == "s3cret", "saved password round-trips through DPAPI");

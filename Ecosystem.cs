@@ -20,7 +20,12 @@ public sealed record SharedJob(string Id, string Name, List<string> Sources, str
 // are not trusted: missing, unreadable or odd means absent, never an error on screen.
 static class Ecosystem
 {
-    public static readonly string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "ProtagonistLabs");
+    /// Test only: BACKUPLABS_TEST_ROOT stands in for %APPDATA% (settings, log, this folder), gives the copy its own
+    /// single-instance names and keeps it off the Run key, so a UI check never reaches the user's own Backup Labs.
+    /// (Windows' known-folder lookup ignores the APPDATA variable, hence a variable of our own.)
+    public static readonly string? TestRoot = Environment.GetEnvironmentVariable("BACKUPLABS_TEST_ROOT") is { Length: > 0 } t ? t : null;
+    public static readonly string AppData = TestRoot ?? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+    public static readonly string Root = Path.Combine(AppData, "ProtagonistLabs");
     public const string ShelfJobId = "shelf-saves"; // Shelf's "Back up all saves with Backup Labs"
 
     /// The card, at every start, off the UI thread: the folder is a bonus and must never slow the start.

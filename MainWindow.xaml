@@ -128,7 +128,7 @@
                 <RadioButton Style="{StaticResource Seg}" GroupName="Format" Tag="Folders" Content="Folders · incremental"
                              ToolTip="Each backup is a browsable folder. Unchanged files are hard-linked, so they take no extra space."/>
                 <RadioButton Style="{StaticResource Seg}" GroupName="Format" Tag="Zip" Content="Zip archive"
-                             ToolTip="Each backup is one full .zip file."/>
+                             ToolTip="Each backup is one full .bkl file: a zip inside, so 7-Zip opens it, and renamed to .zip, so does Explorer."/>
                 <RadioButton Style="{StaticResource Seg}" GroupName="Format" Tag="Encrypted" Content="Encrypted"
                              ToolTip="Each backup is one archive encrypted with AES-256. Only Backup Labs can open it, and only with the password."/>
               </StackPanel>
@@ -298,6 +298,11 @@
             </Grid>
 
             <StackPanel Grid.Row="2" Margin="0,20,0,0">
+              <!-- only for an encrypted backup opened from Explorer; a job's own backups use its saved password -->
+              <StackPanel x:Name="OpenPasswordRow" Margin="0,0,0,16" Visibility="Collapsed">
+                <TextBlock Text="PASSWORD OF THIS BACKUP" Style="{StaticResource Eyebrow}"/>
+                <PasswordBox x:Name="OpenPassword" Width="300" HorizontalAlignment="Left" AutomationProperties.Name="Password of this backup"/>
+              </StackPanel>
               <TextBlock Text="RESTORE TO" Style="{StaticResource Eyebrow}"/>
               <Border Style="{StaticResource SegBar}">
                 <StackPanel Orientation="Horizontal">

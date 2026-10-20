@@ -8,7 +8,7 @@ using System.Text;
 
 namespace Backup;
 
-// Encrypted archives (.bkl): a zip written through AES-256-GCM in 1 MiB chunks. Each chunk has its own
+// Encrypted archives: a zip written through AES-256-GCM in 1 MiB chunks. Each chunk has its own
 // nonce (random base nonce XOR chunk number) and tag, and the chunk number plus a "last chunk" flag are
 // authenticated, so reordering, truncation and tampering all fail to decrypt. The key comes from the
 // password through PBKDF2-SHA256 with a random salt per archive.
@@ -37,6 +37,9 @@ public static class Crypto
         a[8] = last ? (byte)1 : (byte)0;
         return a;
     }
+
+    /// Whether a file starts like an encrypted archive; the extension says nothing (plain archives are .bkl too).
+    internal static bool IsHeader(ReadOnlySpan<byte> head) => head.StartsWith(Magic);
 
     internal static byte[] Header(byte[] salt, int iterations, byte[] baseNonce)
     {

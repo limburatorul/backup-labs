@@ -30,6 +30,9 @@ UninstallDisplayName={#AppName}
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
+; .bkl backups get the app's icon and open in it; Explorer is told to redraw them.
+ChangesAssociations=yes
+
 CloseApplications=force
 RestartApplications=no
 
@@ -53,6 +56,14 @@ Source: "..\dist\app\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs c
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+
+[Registry]
+; Backups (.bkl) open in Backup Labs, on its Restore panel. Per user like the rest of this install (HKCU,
+; no admin). --open, not a bare path: a bare path means "back this up" (File Labs' handoff).
+Root: HKCU; Subkey: "Software\Classes\.bkl"; ValueType: string; ValueName: ""; ValueData: "BackupLabs.Backup"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKCU; Subkey: "Software\Classes\BackupLabs.Backup"; ValueType: string; ValueName: ""; ValueData: "Backup Labs backup"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\BackupLabs.Backup\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\{#AppExe},0"
+Root: HKCU; Subkey: "Software\Classes\BackupLabs.Backup\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExe}"" --open ""%1"""
 
 [Run]
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName}"; Flags: nowait postinstall skipifsilent

@@ -21,8 +21,9 @@ static class Program
         if (args.Length == 2 && args[0] == "--elevated-job") return Elevated.Run(args[1]);
         if (args.Length == 2 && args[0] == "--elevated-clone") return Elevated.RunClone(args[1]);
 
-        using var mutex = new Mutex(true, @"Local\limburatorul.BackupLabs", out bool first);
-        using var show = new EventWaitHandle(false, EventResetMode.AutoReset, @"Local\limburatorul.BackupLabs.Show");
+        var instance = @"Local\limburatorul.BackupLabs" + (Ecosystem.TestRoot == null ? "" : ".Test");
+        using var mutex = new Mutex(true, instance, out bool first);
+        using var show = new EventWaitHandle(false, EventResetMode.AutoReset, instance + ".Show");
         // folders and files to back up, from File Labs' "Back up with Backup Labs" or any command line
         var paths = args.Where(a => !a.StartsWith("--")).ToList();
         // a whole job from a sister app (Shelf's game saves): read now, the app that wrote the file may delete it
@@ -44,6 +45,14 @@ static class Program
         {
             paths.Remove(args[shown + 1]);
             if (Ecosystem.IsJobId(args[shown + 1])) paths.Add("job:" + args[shown + 1]);
+        }
+        // a backup double-clicked in Explorer (the installer's .bkl association): the Restore panel on that file
+        var open = Array.IndexOf(args, "--open");
+        if (open >= 0 && open + 1 < args.Length)
+        {
+            paths.Remove(args[open + 1]);
+            if (Engine.OpenProblem(args[open + 1]) is string why) { Directory.CreateDirectory(Store.DataDir); Store.Log($"--open: ignored {args[open + 1]}: {why}"); }
+            else paths.Add("open:" + Path.GetFullPath(args[open + 1]));
         }
         if (!first) { Store.Leave(paths.ToArray()); show.Set(); return 0; } // the running instance comes forward and takes them
 
@@ -109,7 +118,7 @@ public sealed class AppSettings
 
 static class Store
 {
-    public static readonly string DataDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "BackupLabs");
+    public static readonly string DataDir = Path.Combine(Ecosystem.AppData, "BackupLabs");
     static readonly string SettingsPath = Path.Combine(DataDir, "settings.json");
     public static readonly string LogPath = Path.Combine(DataDir, "backup.log");
     static readonly object LogLock = new();
