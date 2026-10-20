@@ -160,6 +160,21 @@
     </Setter>
   </Style>
 
+  <!-- The stock template paints a disabled list white (the clone panel disables its lists while copying). -->
+  <Style TargetType="ListBox">
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListBox">
+          <Border Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+            <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}">
+              <ItemsPresenter/>
+            </ScrollViewer>
+          </Border>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <Style TargetType="ListBoxItem">
     <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
     <Setter Property="Foreground" Value="{StaticResource Text}"/>
