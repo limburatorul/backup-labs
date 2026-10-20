@@ -39,6 +39,10 @@ Screenshots, a comparison with other backup tools and the full guide: **[protago
 - **Works with [SpaceScan](https://protagonistlabs.app/spacescan/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs):**
   it names your backup folders and the folders you back up, backs a folder up from its row menu, and opens
   on a backup drive that's full.
+- **Works with [Stash](https://protagonistlabs.app/stash/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs):**
+  its Thunderbird and Firefox backups get versions here, on another disk or NAS. Stash hands over its backup
+  folder as the job "Thunderbird backups (Stash)"; before each run that job is pointed at the folder Stash
+  names in `%APPDATA%\ProtagonistLabs\data\stash.items.json`, so moving the folder in Stash needs nothing here.
 
 Nothing leaves your computer: no account, no cloud, no telemetry. The only network call is the update check
 against this repository's releases.

@@ -377,6 +377,7 @@ public partial class MainWindow : Window
             t.Inlines.Add(" · " + (here ? does : would));
         }
         Sister("shelf", "Shelf", installed.Contains("shelf"), "keeps the game saves job in step with your games", "would back up every game's saves in one job");
+        Sister("stash", "Stash", installed.Contains("stash"), "its Thunderbird and Firefox backups get versions here, on another disk or NAS", "its Thunderbird and Firefox backups would get versions here, on another disk or NAS");
         Sister("filelabs", "File Labs", installed.Contains("filelabs") || FileLabsExe() != null, "opens your backups", "would open your backups");
         // SpaceScan: its name opens it on the job's backup drive, when it is here
         var space = Line();
@@ -588,6 +589,14 @@ public partial class MainWindow : Window
             if (j == job) SourceList.Items.Refresh();
             Watch();
             Store.Log($"{j.Name}: {saves.Count} save folders and files from Shelf");
+        }
+        // the job Stash made follows Stash's backup folder, moved there or not
+        var before = string.Join("; ", j.Sources);
+        if (Ecosystem.FollowStash(j.Id, j.Sources))
+        {
+            if (j == job) SourceList.Items.Refresh();
+            Watch();
+            Store.Log($"{j.Name}: Stash's backup folder is now {j.Sources[0]} (was {(before == "" ? "nothing" : before)})");
         }
         j.StartedAt = DateTime.Now;
         Drives.Present(j); // follow a USB drive to its current letter

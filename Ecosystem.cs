@@ -27,6 +27,7 @@ static class Ecosystem
     public static readonly string AppData = TestRoot ?? Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
     public static readonly string Root = Path.Combine(AppData, "ProtagonistLabs");
     public const string ShelfJobId = "shelf-saves"; // Shelf's "Back up all saves with Backup Labs"
+    public const string StashJobId = "stash-backups"; // Stash's "Backup Labs" line in its Works with
 
     /// The card, at every start, off the UI thread: the folder is a bonus and must never slow the start.
     public static void WriteCard(string version) => Task.Run(() =>
@@ -80,17 +81,23 @@ static class Ecosystem
     }, new JsonSerializerOptions(JsonSerializerDefaults.Web) { WriteIndented = true });
 
     /// A sister's exe from its card, or null when it isn't installed (no card, a broken one, or the exe is gone).
-    public static string? Exe(string id)
+    public static string? Exe(string id) => Exe(id, Root);
+
+    static string? Exe(string id, string root)
     {
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(Root, "apps", id + ".json")));
+            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "apps", id + ".json")));
             var c = doc.RootElement;
             return c.ValueKind == JsonValueKind.Object && c.TryGetProperty("schema", out var v) && v.ValueKind == JsonValueKind.Number && v.GetInt32() == 1
-                && c.TryGetProperty("exe", out var exe) && exe.ValueKind == JsonValueKind.String && File.Exists(exe.GetString()) ? exe.GetString() : null;
+                && c.TryGetProperty("exe", out var exe) && exe.ValueKind == JsonValueKind.String && Local(exe.GetString()) && File.Exists(exe.GetString()) ? exe.GetString() : null;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException or FormatException) { return null; }
     }
+
+    /// A path on a drive of this PC, judged by its text alone: a \\server\share or \\?\ path is refused before
+    /// File.Exists could reach for the network (an SMB lookup hands out the user's credentials) or a device.
+    static bool Local(string? path) => path != null && Regex.IsMatch(path, @"^[A-Za-z]:\\") && path.IndexOfAny(Path.GetInvalidPathChars()) < 0;
 
     /// A job id another app may name (--show-job): the same plain characters as in a spec.
     public static bool IsJobId(string id) => Regex.IsMatch(id, "^[A-Za-z0-9_-]{1,64}$");
@@ -149,6 +156,44 @@ static class Ecosystem
         catch (Exception e) when (e is JsonException or FormatException) { return null; }
     }
 
+    /// The job Stash made follows Stash's backup folder (data\stash.items.json), so a folder moved in Stash is
+    /// backed up from where it is now. True when the job's sources changed; with Stash gone or its file unusable
+    /// the job keeps what it has. The root is a test's; the app uses its own.
+    public static bool FollowStash(string jobId, List<string> sources, string? root = null)
+    {
+        if (jobId != StashJobId || StashFolderUnder(root ?? Root) is not string folder
+            || sources.Count == 1 && string.Equals(sources[0], folder, StringComparison.OrdinalIgnoreCase)) return false;
+        sources.Clear();
+        sources.Add(folder);
+        return true;
+    }
+
+    static string? StashFolderUnder(string root)
+    {
+        if (Exe("stash", root) == null) return null; // only while Stash is here: its card exists and its exe too
+        try
+        {
+            var file = new FileInfo(Path.Combine(root, "data", "stash.items.json"));
+            return file.Length > 1 << 20 ? null : StashFolder(File.ReadAllText(file.FullName)); // 20 items are ~10 KB
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return null; }
+    }
+
+    /// Stash's backup folder from its file (ReadAllText drops a BOM), or null unless it is a local folder that exists.
+    public static string? StashFolder(string json)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            var r = doc.RootElement;
+            if (r.ValueKind != JsonValueKind.Object || !r.TryGetProperty("schema", out var v) || v.ValueKind != JsonValueKind.Number || v.GetInt32() != 1
+                || !r.TryGetProperty("folder", out var f) || f.ValueKind != JsonValueKind.String) return null;
+            var folder = f.GetString()!;
+            return folder.Length <= 1024 && Local(folder) && Directory.Exists(folder) ? Path.GetFullPath(folder) : null;
+        }
+        catch (Exception e) when (e is JsonException or FormatException) { return null; }
+    }
+
     /// Sister apps installed on this PC (their card exists and its exe is still there), and whether the
     /// user bought one of the paid ones.
     public static (HashSet<string> Installed, bool Bought) Sisters()
@@ -164,7 +209,7 @@ static class Ecosystem
                     var c = doc.RootElement;
                     if (c.ValueKind != JsonValueKind.Object || !c.TryGetProperty("schema", out var v) || v.ValueKind != JsonValueKind.Number || v.GetInt32() != 1) continue;
                     if (!c.TryGetProperty("id", out var id) || id.ValueKind != JsonValueKind.String) continue;
-                    if (!c.TryGetProperty("exe", out var exe) || exe.ValueKind != JsonValueKind.String || !File.Exists(exe.GetString())) continue;
+                    if (!c.TryGetProperty("exe", out var exe) || exe.ValueKind != JsonValueKind.String || !Local(exe.GetString()) || !File.Exists(exe.GetString())) continue;
                     installed.Add(id.GetString()!);
                     if (c.TryGetProperty("paid", out var p) && p.ValueKind == JsonValueKind.True
                         && c.TryGetProperty("edition", out var ed) && ed.ValueKind == JsonValueKind.String && ed.GetString() == "full") bought = true;

@@ -274,6 +274,48 @@ Check(Ecosystem.ShelfSaves(J(new { schema = 2, games = new[] { new { saves = new
     && Ecosystem.ShelfSaves(J(new { schema = 1, games = "x" })) == null && Ecosystem.ShelfSaves(J(new { schema = 1, games = new[] { new { saves = new[] { missing } } } })) == null,
     "a Shelf file with another schema, garbage or no existing saves changes nothing");
 
+// ---- the job Stash made follows Stash's backup folder (data\stash.items.json), only while Stash is installed ----
+var eco = Path.Combine(root, "eco");
+Directory.CreateDirectory(Path.Combine(eco, "apps"));
+Directory.CreateDirectory(Path.Combine(eco, "data"));
+var stashExe = Path.Combine(root, "Stash.exe");
+File.WriteAllText(stashExe, "");
+var stashDest = Path.Combine(root, "stash-moved");
+Directory.CreateDirectory(stashDest);
+void Card(object o) => File.WriteAllText(Path.Combine(eco, "apps", "stash.json"), J(o));
+void Items(string text) => File.WriteAllText(Path.Combine(eco, "data", "stash.items.json"), text);
+List<string> Src() => new() { src };
+bool Kept(string id) { var s = Src(); return !Ecosystem.FollowStash(id, s, eco) && s.SequenceEqual(new[] { src }); }
+Card(new { schema = 1, id = "stash", exe = stashExe });
+Items("\uFEFF" + J(new { schema = 1, updated = "2026-10-20T09:00:00Z", folder = stashDest, items = new[] { new { name = "x.zip" } } })); // PowerShell writes a BOM
+var sj = Src();
+Check(Ecosystem.FollowStash(Ecosystem.StashJobId, sj, eco) && sj.SequenceEqual(new[] { stashDest }) && !Ecosystem.FollowStash(Ecosystem.StashJobId, sj, eco),
+    "Stash's job: a moved backup folder replaces its sources (file with a BOM), and only once");
+Check(Kept("other") && Kept(Ecosystem.ShelfJobId), "a job with another id is left alone");
+Card(new { schema = 1, id = "stash", exe = Path.Combine(root, "gone.exe") });
+Check(Kept(Ecosystem.StashJobId), "Stash's card naming an exe that is gone changes nothing");
+Card(new { schema = 1, id = "stash", exe = @"\\localhost\c$\Windows\notepad.exe" });
+Check(Kept(Ecosystem.StashJobId), "nor a card whose exe is on a network share");
+Card(new { schema = 2, id = "stash", exe = stashExe });
+Check(Kept(Ecosystem.StashJobId), "nor a schema 2 card");
+File.Delete(Path.Combine(eco, "apps", "stash.json"));
+Check(Kept(Ecosystem.StashJobId), "nor no card at all");
+Card(new { schema = 1, id = "stash", exe = stashExe });
+foreach (var (bad, why) in new[] {
+    (J(new { schema = 2, folder = stashDest }), "schema 2"), (J(new { schema = "1", folder = stashDest }), "schema as text"), (J(new { schema = 1.5, folder = stashDest }), "schema 1.5"),
+    (J(new { schema = 1, folder = 5 }), "folder as a number"), (J(new { schema = 1 }), "no folder"),
+    (J(new { schema = 1, folder = @"\\server\share\Stash" }), "a UNC folder"), (J(new { schema = 1, folder = @"\\?\C:\Windows" }), "a device path"),
+    (J(new { schema = 1, folder = "relative\\Stash" }), "a relative folder"), (J(new { schema = 1, folder = Path.Combine(root, "no-such-folder") }), "a missing folder"),
+    (J(new { schema = 1, folder = lone }), "a file, not a folder"), ("{\"schema\":1,\"folder\":", "cut-off JSON"), ("[1,2]", "an array"), ("", "an empty file") })
+{
+    Items(bad);
+    Check(Kept(Ecosystem.StashJobId), $"Stash's file with {why} changes nothing");
+}
+Items(J(new { schema = 1, folder = stashDest, pad = new string('x', 1 << 20) }));
+Check(Kept(Ecosystem.StashJobId), "nor one over 1 MB");
+File.Delete(Path.Combine(eco, "data", "stash.items.json"));
+Check(Kept(Ecosystem.StashJobId), "nor no file at all");
+
 // ---- a failed update check is a failure, never "nothing newer" ----
 bool CheckFails(string feed)
 {
