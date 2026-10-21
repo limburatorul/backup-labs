@@ -57,7 +57,8 @@ public partial class MainWindow : Window
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!)!;
         var menu = TrayMenu.Create();
         menu.Items.Add("Open", null, (_, _) => ShowWindow());
-        menu.Items.Add("Back up all jobs now", null, (_, _) => { foreach (var j in app.Jobs) j.Requested = true; Pump(); });
+        // only jobs that can run now: a request left on an unfinished job started it the moment it was finished
+        menu.Items.Add("Back up all jobs now", null, (_, _) => { foreach (var j in app.Jobs.Where(j => Problem(j) == null)) j.Requested = true; Pump(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Exit());
         tray = new Forms.NotifyIcon { Icon = icon, Text = "Backup Labs", Visible = true, ContextMenuStrip = menu };
@@ -69,7 +70,8 @@ public partial class MainWindow : Window
         if (AutostartBox.IsChecked == true) SetAutostart(true); // the exe may have moved since
         Bind(FormatBar, v => { job.Format = v; });
         Bind(CompressionPanel, v => job.Compression = Enum.Parse<CompressionLevel>(v));
-        Bind(IntervalPanel, v => { job.IntervalHours = int.Parse(v); job.RetryAfter = default; });
+        Bind(IntervalPanel, v => { job.IntervalHours = int.Parse(v); Rescheduled(); });
+        Bind(DayPanel, v => { job.Day = (DayOfWeek)int.Parse(v); Rescheduled(); });
         Bind(KeepBar, v => job.SmartKeep = v == "Smart");
 
         JobList.ItemsSource = app.Jobs;
@@ -112,6 +114,8 @@ public partial class MainWindow : Window
         Select(FormatBar, job.Format);
         Select(CompressionPanel, job.Compression.ToString());
         Select(IntervalPanel, job.IntervalHours.ToString());
+        Select(DayPanel, ((int)job.Day).ToString());
+        TimeBox.Text = Clock(job.At);
         Select(KeepBar, job.SmartKeep ? "Smart" : "Last");
         KeepBox.Text = job.Keep.ToString();
         ExcludeBox.Text = string.Join("; ", job.Exclude);
@@ -144,13 +148,16 @@ public partial class MainWindow : Window
         KeepText.Text = job.SmartKeep ? "All from the last 24 h, one a day for a month, one a week for a year." : "backups";
         DeleteJobButton.IsEnabled = app.Jobs.Count > 1 && running != job;
 
+        var timed = job.IntervalHours is 24 or 168;
+        WhenRow.Visibility = timed ? Visibility.Visible : Visibility.Collapsed;
+        DayBar.Visibility = job.IntervalHours == 168 ? Visibility.Visible : Visibility.Collapsed;
+
         var last = job.LastRun is DateTime l ? l.ToString("d MMM, HH:mm") : "never";
         var when = new List<string>();
-        if (job.IntervalHours > 0)
+        if (Schedule.Next(job.IntervalHours, job.At, job.Day, job.LastRun, job.Since) is DateTime due)
         {
-            var due = job.LastRun is DateTime x ? x.AddHours(job.IntervalHours) : DateTime.Now;
             if (job.RetryAfter > due) due = job.RetryAfter;
-            when.Add(due <= DateTime.Now ? "within a minute" : due.ToString("d MMM, HH:mm"));
+            when.Add(due <= DateTime.Now ? "within a minute" : due.ToString(job.IntervalHours == 168 ? "ddd d MMM, HH:mm" : "d MMM, HH:mm"));
         }
         if (job.RealTime) when.Add("on changes");
         if (job.OnDriveConnected) when.Add("when the drive is plugged in");
@@ -185,6 +192,37 @@ public partial class MainWindow : Window
         Ecosystem.WriteJobs(app.Jobs.Select(j => j.Shared()));
         UpdateJobStatuses();
     }
+
+    // A new schedule counts from now: a time already past today waits for tomorrow instead of running at once.
+    void Rescheduled()
+    {
+        job.Since = DateTime.Now;
+        job.RetryAfter = default;
+    }
+
+    // What or where changed on a job that never ran: it counts from now, so finishing a job's setup never starts it.
+    static void Edited(Job j)
+    {
+        if (j.LastRun == null) j.Since = DateTime.Now;
+    }
+
+    static string Clock(int minutes) => $"{minutes / 60:00}:{minutes % 60:00}";
+
+    void TimeBox_LostFocus(object sender, RoutedEventArgs e)
+    {
+        // 24-hour time: 21:30, 9:05, or just 21
+        if (TimeSpan.TryParseExact(TimeBox.Text.Trim(), new[] { @"h\:mm", @"hh\:mm", "%h", "hh" }, CultureInfo.InvariantCulture, out var t)
+            && t < TimeSpan.FromDays(1) && (int)t.TotalMinutes != job.At)
+        {
+            job.At = (int)t.TotalMinutes;
+            Rescheduled();
+            Save();
+        }
+        TimeBox.Text = Clock(job.At);
+        Refresh();
+    }
+
+    void TimeBox_KeyDown(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) TimeBox_LostFocus(sender, e); }
 
     void NameBox_LostFocus(object sender, RoutedEventArgs e)
     {
@@ -257,6 +295,7 @@ public partial class MainWindow : Window
     // saved, selected and on screen, focus on the destination
     void Bring(Job j)
     {
+        Edited(j);
         Save();
         Watch();
         job = j;
@@ -265,6 +304,24 @@ public partial class MainWindow : Window
         ShowJob();
         ShowWindow();
         DestBox.Focus();
+    }
+
+    // One job for the settings and data of our apps on this PC, waiting for a destination; a second click opens it.
+    void AppsJob_Click(object sender, RoutedEventArgs e)
+    {
+        var j = app.Jobs.FirstOrDefault(x => x.Id == Ecosystem.AppsJobId);
+        if (j == null)
+        {
+            var (sources, exclude) = Ecosystem.AppsJob();
+            j = BlankJob();
+            j.Id = Ecosystem.AppsJobId;
+            j.Name = "Protagonist Labs apps";
+            j.Sources = sources;
+            j.Exclude = exclude;
+            j.IntervalHours = 24;
+            Store.Log($"{j.Name}: job made with {sources.Count} folders, {exclude.Count} caches left out");
+        }
+        Bring(j);
     }
 
     void DeleteJob_Click(object sender, RoutedEventArgs e)
@@ -294,6 +351,7 @@ public partial class MainWindow : Window
     {
         foreach (var f in paths)
             if (!job.Sources.Contains(f, StringComparer.OrdinalIgnoreCase)) job.Sources.Add(f);
+        Edited(job);
         SourceList.Items.Refresh();
         Save();
         Watch();
@@ -303,6 +361,7 @@ public partial class MainWindow : Window
     void Remove_Click(object sender, RoutedEventArgs e)
     {
         foreach (var f in SourceList.SelectedItems.Cast<string>().ToList()) job.Sources.Remove(f);
+        Edited(job);
         SourceList.Items.Refresh();
         Save();
         Watch();
@@ -327,6 +386,7 @@ public partial class MainWindow : Window
         job.Destination = dest;
         job.DestVolume = Drives.Volume(dest);
         job.RetryAfter = default;
+        Edited(job);
         Save();
         Refresh();
     }
@@ -362,6 +422,7 @@ public partial class MainWindow : Window
     void ShowWorksWith()
     {
         var (installed, bought) = Ecosystem.Sisters();
+        AppsJobButton.Visibility = installed.Any(id => id != "backuplabs") || app.Jobs.Any(j => j.Id == Ecosystem.AppsJobId) ? Visibility.Visible : Visibility.Collapsed;
         WorksWith.Children.Clear();
         TextBlock Line()
         {
@@ -482,8 +543,9 @@ public partial class MainWindow : Window
         if (DateTime.Now < j.RetryAfter || Problem(j) != null) return false;
         if (j.OnDriveConnected && !Drives.Present(j)) return false; // waits for the drive, silently
         if (j.Requested) return true;
-        if (j.RealTime && j.ChangedAt > j.StartedAt && DateTime.Now - j.ChangedAt >= TimeSpan.FromMinutes(1)) return true;
-        return j.IntervalHours > 0 && (j.LastRun is not DateTime last || DateTime.Now - last >= TimeSpan.FromHours(j.IntervalHours));
+        // changes made while the job was being set up don't count
+        if (j.RealTime && j.ChangedAt > j.StartedAt && j.ChangedAt > j.Since && DateTime.Now - j.ChangedAt >= TimeSpan.FromMinutes(1)) return true;
+        return Schedule.Next(j.IntervalHours, j.At, j.Day, j.LastRun, j.Since) is DateTime next && DateTime.Now >= next;
     }
 
     void Pump()
@@ -533,7 +595,7 @@ public partial class MainWindow : Window
             settle.Tick += (_, _) =>
             {
                 settle.Stop();
-                foreach (var j in app.Jobs.Where(j => j.OnDriveConnected && Drives.Present(j)))
+                foreach (var j in app.Jobs.Where(j => j.OnDriveConnected && Problem(j) == null && Drives.Present(j)))
                     if (j.LastRun is not DateTime last || DateTime.Now - last > TimeSpan.FromMinutes(10)) j.Requested = true;
                 Save();
                 Pump();

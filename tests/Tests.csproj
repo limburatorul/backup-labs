@@ -11,5 +11,6 @@
     <Compile Include="..\Clone.cs" />
     <Compile Include="..\Ecosystem.cs" />
     <Compile Include="..\Updater.cs" />
+    <Compile Include="..\Jobs.cs" />
   </ItemGroup>
 </Project>

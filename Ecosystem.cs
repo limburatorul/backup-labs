@@ -194,6 +194,79 @@ static class Ecosystem
         catch (Exception e) when (e is JsonException or FormatException) { return null; }
     }
 
+    // ---- "Back up our apps' data": one job for the settings and data of every studio app here ----
+
+    public const string AppsJobId = "protagonist-apps";
+
+    // Electron's own caches, rebuilt on the next start
+    static readonly string[] Chromium = { "Cache", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache", "DawnWebGPUCache", "Shared Dictionary", "Crashpad" };
+
+    // Where each app keeps its settings and data, read from its source (folder names are the apps' own, set in code),
+    // and what in there it downloads again by itself. Under Roaming AppData, Sysoptimizer's under ProgramData.
+    // Not here: Planner (its plan sits next to its exe; AppData only holds a browser profile), Cursor Selector (next
+    // to its exe), HotkeyScan (keeps nothing but its card).
+    static readonly (string Id, string Folder, string[] Skip)[] AppFolders =
+    {
+        ("shelf", "game-browser", new[] { "covers", "screenshots", "trailers", "thumbs" }.Concat(Chromium).ToArray()), // art and trailers come back from Steam
+        ("reel", "reel", Chromium),
+        ("reminder", "Reminder", Chromium),
+        ("steamradar", "SteamRadar", Chromium),
+        ("lume", "Lume", new[] { "icons" }.Concat(Chromium).ToArray()), // icons: a cache of the apps' own icons
+        ("frostpane", "Frostpane", Array.Empty<string>()),
+        ("filelabs", "FileLabs", Array.Empty<string>()),
+        ("stash", "ThunderbirdBackup", Array.Empty<string>()),
+        ("spacescan", "SpaceScan", Array.Empty<string>()),
+        ("autoclicker", "AutoClicker", Array.Empty<string>()),
+        ("glaze", "Glaze", Array.Empty<string>()),
+        ("sysoptimizer", "Sysoptimizer", Array.Empty<string>()), // in ProgramData: it runs as a service too
+        ("backuplabs", "BackupLabs", Array.Empty<string>()),
+    };
+
+    public static (List<string> Sources, List<string> Exclude) AppsJob() => AppsJob(Root, AppData,
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+
+    /// The shared folder, plus the data folder of each studio app installed here (its card exists and its exe too;
+    /// Backup Labs always). A folder is the one the card names in `data`, when that passes CardFolder, else the
+    /// one in AppFolders. Only folders that exist; the caches in them that exist go into the exclusions, as paths, so
+    /// a "Cache" folder elsewhere is still backed up. The parameters are a test's; the app passes the real ones.
+    public static (List<string> Sources, List<string> Exclude) AppsJob(string root, string roaming, string programData, string profile)
+    {
+        var sources = new List<string>();
+        var exclude = new List<string>();
+        if (Directory.Exists(root)) sources.Add(Path.GetFullPath(root));
+        foreach (var (id, known, skip) in AppFolders)
+        {
+            if (id != "backuplabs" && Exe(id, root) == null) continue;
+            var folder = CardFolder(CardData(id, root), profile)
+                ?? Path.Combine(id == "sysoptimizer" ? programData : roaming, known);
+            if (!Directory.Exists(folder) || sources.Contains(folder, StringComparer.OrdinalIgnoreCase)) continue;
+            sources.Add(folder);
+            exclude.AddRange(skip.Select(n => Path.Combine(folder, n)).Where(Directory.Exists));
+        }
+        return (sources, exclude);
+    }
+
+    static string? CardData(string id, string root)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "apps", id + ".json")));
+            var c = doc.RootElement;
+            return c.ValueKind == JsonValueKind.Object && c.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return null; }
+    }
+
+    /// A data folder named by a card, which anything could have written: a local path (X:\..., no \\server or \\?\
+    /// device path, no "C:\file:stream"), strictly inside the user's profile once ".." is resolved. Judged by its text
+    /// alone (GetFullPath doesn't touch the disk), so a refused path is never looked at. Null when refused.
+    public static string? CardFolder(string? path, string profile)
+    {
+        if (path == null || path.Length > 260 || !Local(path) || path.IndexOf(':', 2) >= 0) return null;
+        var full = Path.GetFullPath(path).TrimEnd('\\');
+        return full.StartsWith(profile.TrimEnd('\\') + '\\', StringComparison.OrdinalIgnoreCase) ? full : null;
+    }
+
     /// Sister apps installed on this PC (their card exists and its exe is still there), and whether the
     /// user bought one of the paid ones.
     public static (HashSet<string> Installed, bool Bought) Sisters()

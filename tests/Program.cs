@@ -316,6 +316,138 @@ Check(Kept(Ecosystem.StashJobId), "nor one over 1 MB");
 File.Delete(Path.Combine(eco, "data", "stash.items.json"));
 Check(Kept(Ecosystem.StashJobId), "nor no file at all");
 
+// ---- 1.5.0: when a job runs by itself (Schedule.Next) ----
+{
+    DateTime T(string s) => DateTime.ParseExact(s, "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture);
+    DateTime? N(int hours, string at, DayOfWeek day, string? last, string since) =>
+        Schedule.Next(hours, (int)TimeSpan.Parse(at).TotalMinutes, day, last == null ? null : T(last), T(since));
+    const DayOfWeek Mon = DayOfWeek.Monday;
+    Check(N(0, "12:00", Mon, "2026-10-20 12:00:00", "2026-10-01 00:00:00") == null, "schedule: manual never comes due");
+    Check(N(1, "12:00", Mon, "2026-10-21 10:00:00", "2026-10-01 00:00:00") == T("2026-10-21 11:00:00")
+          && N(6, "12:00", Mon, "2026-10-21 10:00:00", "2026-10-01 00:00:00") == T("2026-10-21 16:00:00"), "hourly and every 6 h: that long after the last run, as before");
+    // the 1.4.0 bug: a job that never ran was due at once, so it started as soon as it had folders and a destination
+    Check(N(1, "12:00", Mon, null, "2026-10-21 09:30:00") == T("2026-10-21 10:30:00"), "a new hourly job waits an hour from its setup");
+    Check(N(24, "12:00", Mon, null, "2026-10-21 13:00:00") == T("2026-10-22 12:00:00"), "a new daily job set up after its time waits for tomorrow");
+    Check(N(24, "12:00", Mon, null, "2026-10-21 11:00:00") == T("2026-10-21 12:00:00"), "and set up before it runs today at that time");
+    Check(N(168, "09:00", DayOfWeek.Wednesday, null, "2026-10-21 08:00:00") == T("2026-10-21 09:00:00")
+          && N(168, "09:00", DayOfWeek.Wednesday, null, "2026-10-21 10:00:00") == T("2026-10-28 09:00:00")
+          && N(168, "09:00", Mon, null, "2026-10-21 10:00:00") == T("2026-10-26 09:00:00"), "weekly: the next such day at that time, today if still ahead");
+    Check(N(24, "12:00", Mon, "2026-10-20 12:00:20", "2026-10-01 00:00:00") == T("2026-10-21 12:00:00"), "daily: the day after the last run, at its time");
+    Check(N(24, "12:00", Mon, "2026-10-21 11:00:00", "2026-10-01 00:00:00") == T("2026-10-21 12:00:00"), "a run by hand before the time doesn't move it");
+    Check(N(24, "12:00", Mon, "2026-10-20 12:00:20", "2026-10-21 09:00:00") == T("2026-10-21 12:00:00")
+          && N(24, "08:00", Mon, "2026-10-20 08:00:20", "2026-10-21 09:00:00") == T("2026-10-22 08:00:00"),
+          "a time changed today: still today if ahead, else tomorrow, never at once");
+    // the PC off or asleep through the time: due at the next check, once
+    var missed = N(24, "12:00", Mon, "2026-10-17 12:00:30", "2026-10-01 00:00:00")!.Value;
+    var woke = T("2026-10-21 08:00:00");
+    Check(missed == T("2026-10-18 12:00:00") && woke >= missed && N(24, "12:00", Mon, "2026-10-21 08:00:05", "2026-10-01 00:00:00") == T("2026-10-21 12:00:00"),
+          "PC asleep for days: one catch-up run on waking, then the usual time");
+    var weekMissed = N(168, "20:00", DayOfWeek.Friday, "2026-10-02 20:00:10", "2026-10-01 00:00:00")!.Value;
+    Check(weekMissed == T("2026-10-09 20:00:00") && N(168, "20:00", DayOfWeek.Friday, "2026-10-21 08:00:05", "2026-10-01 00:00:00") == T("2026-10-23 20:00:00"),
+          "weekly missed twice: one catch-up, then the next Friday");
+    Check(N(24, "23:30", Mon, "2026-10-31 23:30:05", "2026-10-01 00:00:00") == T("2026-11-01 23:30:00")
+          && N(24, "00:15", Mon, "2026-02-28 23:59:00", "2026-01-01 00:00:00") == T("2026-03-01 00:15:00")
+          && N(168, "09:00", Mon, "2026-02-27 09:00:00", "2026-01-01 00:00:00") == T("2026-03-02 09:00:00")
+          && N(168, "09:00", DayOfWeek.Thursday, "2026-12-31 10:00:00", "2026-01-01 00:00:00") == T("2027-01-07 09:00:00"),
+          "end of month, end of February, end of year");
+    // DST in Romania (GTB Standard Time): 28 Mar 2027 03:00 -> 04:00; 25 Oct 2026 04:00 -> 03:00
+    var ro = TimeZoneInfo.FindSystemTimeZoneById("GTB Standard Time");
+    var spring = N(24, "03:30", Mon, "2027-03-27 03:30:10", "2027-01-01 00:00:00")!.Value;
+    Check(spring == T("2027-03-28 03:30:00") && ro.IsInvalidTime(spring) && T("2027-03-28 04:00:00") >= spring,
+          "DST spring: a time that doesn't exist that day runs when the clock jumps past it");
+    var autumn = N(24, "03:30", Mon, "2026-10-25 03:30:10", "2026-01-01 00:00:00")!.Value;
+    Check(ro.IsAmbiguousTime(T("2026-10-25 03:30:00")) && autumn == T("2026-10-26 03:30:00"),
+          "DST autumn: a time that comes twice runs once (the second 03:30 is before the next time)");
+    Check(N(24, "12:00", Mon, "2026-03-28 12:00:10", "2026-01-01 00:00:00") == T("2026-03-29 12:00:00"), "a DST day is still one run a day at its time");
+}
+// ---- 1.5.0: settings from 1.4.0 ----
+{
+    var upgraded = new DateTime(2026, 10, 21, 8, 0, 0);
+    var old = """
+    {
+      "Jobs": [
+        { "Id": "a", "Name": "Daily", "Sources": ["C:\\x"], "Destination": "E:\\B", "IntervalHours": 24, "LastRun": "2026-10-19T21:15:42.123+03:00", "LastResult": "ok" },
+        { "Id": "b", "Name": "Weekly", "Sources": ["C:\\x"], "Destination": "E:\\B", "IntervalHours": 168, "LastRun": "2026-10-14T08:00:05" },
+        { "Id": "c", "Name": "Hourly", "Sources": ["C:\\x"], "Destination": "E:\\B", "IntervalHours": 1, "LastRun": "2026-10-21T07:20:00" },
+        { "Id": "d", "Name": "Never ran", "Sources": ["C:\\x"], "Destination": "E:\\B", "IntervalHours": 24, "LastRun": null }
+      ],
+      "LastSeenVersion": "1.4.0"
+    }
+    """;
+    var s = Store.Parse(old, upgraded)!;
+    var (a, wk, h, d) = (s.Jobs[0], s.Jobs[1], s.Jobs[2], s.Jobs[3]);
+    DateTime? Next(Job j) => Schedule.Next(j.IntervalHours, j.At, j.Day, j.LastRun, j.Since);
+    var lastA = a.LastRun!.Value; // read in local time, as 1.4.0 saved and compared it
+    Check(s.TimedSchedules && a.At == lastA.Hour * 60 + lastA.Minute && a.Day == lastA.DayOfWeek
+          && Next(a) == lastA.Date.AddDays(1).AddMinutes(a.At), "1.4.0 daily job: its last run's time, so it comes due when 1.4.0 would have run it");
+    Check(wk.Day == DayOfWeek.Wednesday && wk.At == 8 * 60 && Next(wk) == new DateTime(2026, 10, 21, 8, 0, 0) && upgraded >= Next(wk),
+          "1.4.0 weekly job a week old: due at once, as in 1.4.0 (catch-up kept)");
+    Check(Next(h) == new DateTime(2026, 10, 21, 8, 20, 0), "1.4.0 hourly job: an hour after its last run, unchanged");
+    Check(d.Since == upgraded && d.At == 12 * 60 && Next(d) == new DateTime(2026, 10, 21, 12, 0, 0) && !(upgraded >= Next(d)),
+          "1.4.0 job that never ran: waits for its time (12:00), no run on upgrade");
+    var reread = Store.Parse(System.Text.Json.JsonSerializer.Serialize(s), upgraded.AddDays(3))!;
+    Check(reread.Jobs[0].At == a.At && reread.Jobs[3].Since == upgraded, "a 1.5.0 file is read as saved, not migrated again");
+    var odd = Store.Parse("""{ "TimedSchedules": true, "Jobs": [ { "At": 5000, "Day": 9, "Since": "2099-01-01T00:00:00" } ] }""", upgraded)!.Jobs[0];
+    Check(odd.At == 12 * 60 && odd.Day == DayOfWeek.Monday && odd.Since == upgraded, "a hand-edited time, day or future date falls back to sane values");
+    Check(Store.Parse("null", upgraded) == null, "an empty settings file is no settings");
+}
+// ---- 1.5.0: "Back up our apps' data" ----
+{
+    var pr = Path.Combine(root, "preset");
+    var profile = Path.Combine(pr, "profile");
+    var roaming = Path.Combine(profile, "AppData", "Roaming");
+    var programData = Path.Combine(pr, "programdata");
+    var plRoot = Path.Combine(roaming, "ProtagonistLabs");
+    Directory.CreateDirectory(Path.Combine(plRoot, "apps"));
+    Directory.CreateDirectory(Path.Combine(plRoot, "data"));
+    File.WriteAllText(Path.Combine(plRoot, "data", "shelf.games.json"), "{}");
+    var exe = Path.Combine(pr, "App.exe");
+    File.WriteAllText(exe, "");
+    void AppCard(string id, object o) => File.WriteAllText(Path.Combine(plRoot, "apps", id + ".json"), J(o));
+    void Fill(string dir, int kb) { Directory.CreateDirectory(dir); File.WriteAllBytes(Path.Combine(dir, "f.bin"), new byte[kb * 1024]); }
+    // Shelf: its settings and saves, art and trailers it downloads again, Chromium's caches (sizes made up, in proportion)
+    var gb = Path.Combine(roaming, "game-browser");
+    Fill(gb, 64); Fill(Path.Combine(gb, "save-backups"), 512);
+    Fill(Path.Combine(gb, "covers"), 3000); Fill(Path.Combine(gb, "screenshots"), 2000); Fill(Path.Combine(gb, "trailers"), 9000); Fill(Path.Combine(gb, "thumbs"), 800);
+    Fill(Path.Combine(gb, "Cache"), 1500); Fill(Path.Combine(gb, "Code Cache"), 700); Fill(Path.Combine(gb, "GPUCache"), 100);
+    Fill(Path.Combine(gb, "library", "Cache"), 10); // a "Cache" deeper down is the app's own: kept
+    AppCard("shelf", new { schema = 1, id = "shelf", exe });
+    Fill(Path.Combine(roaming, "reel"), 10);
+    AppCard("reel", new { schema = 1, id = "reel", exe = Path.Combine(pr, "gone.exe") });          // uninstalled: left out
+    Fill(Path.Combine(roaming, "Reminder"), 10);
+    AppCard("reminder", new { schema = 1, id = "reminder", exe, data = @"\\server\share\Reminder" }); // hostile data path: the known folder instead
+    var lumeData = Path.Combine(profile, "Documents", "Lume data");
+    Fill(lumeData, 10); Fill(Path.Combine(lumeData, "icons"), 300); Fill(Path.Combine(roaming, "Lume"), 10);
+    AppCard("lume", new { schema = 1, id = "lume", exe, data = lumeData });                         // a card that says where: used
+    Fill(Path.Combine(roaming, "Glaze"), 10);
+    AppCard("glaze", new { schema = 1, id = "glaze", exe, data = @"C:\Windows" });                  // outside the profile: the known folder instead
+    AppCard("autoclicker", new { schema = 1, id = "autoclicker", exe });                             // installed, no folder: left out
+    Fill(Path.Combine(programData, "Sysoptimizer"), 10);
+    File.WriteAllText(Path.Combine(plRoot, "apps", "sysoptimizer.json"), "\uFEFF" + J(new { schema = 1, id = "sysoptimizer", exe, data = 5 })); // BOM, data not a string
+    File.WriteAllText(Path.Combine(plRoot, "apps", "frostpane.json"), "{ broken");
+    Fill(Path.Combine(roaming, "Frostpane"), 10);
+    Fill(Path.Combine(roaming, "BackupLabs"), 10);
+    var (sources, excl) = Ecosystem.AppsJob(plRoot, roaming, programData, profile);
+    Check(sources.SequenceEqual(new[] { plRoot, gb, Path.Combine(roaming, "Reminder"), lumeData, Path.Combine(roaming, "Glaze"), Path.Combine(programData, "Sysoptimizer"), Path.Combine(roaming, "BackupLabs") }),
+          "apps' data: the shared folder, installed apps' folders that exist (a card's own `data` when it is safe), Backup Labs itself; not uninstalled, broken or missing ones");
+    Check(excl.SequenceEqual(new[] { "covers", "screenshots", "trailers", "thumbs", "Cache", "Code Cache", "GPUCache" }.Select(n => Path.Combine(gb, n)).Append(Path.Combine(lumeData, "icons"))),
+          "caches that exist are left out, by full path");
+    var with = Engine.Run(new RunOptions(sources, Path.Combine(pr, "dst-with")) { Exclude = excl }, log.Add, null, default);
+    var without = Engine.Run(new RunOptions(sources, Path.Combine(pr, "dst-without")), log.Add, null, default);
+    Console.WriteLine($"     synthetic apps' data: {Engine.Size(without.BytesCopied)} in full, {Engine.Size(with.BytesCopied)} with the caches left out ({with.Copied} files)");
+    Check(with.Failed == 0 && File.Exists(Path.Combine(with.Snapshot, Engine.RelPath(gb), "library", "Cache", "f.bin"))
+          && File.Exists(Path.Combine(with.Snapshot, Engine.RelPath(gb), "save-backups", "f.bin"))
+          && !Directory.Exists(Path.Combine(with.Snapshot, Engine.RelPath(gb), "trailers")) && with.BytesCopied < without.BytesCopied / 10,
+          "the job backs up settings and saves, not the caches (under a tenth of the bytes here)");
+    foreach (var (bad, why) in new (string?, string)[] {
+        (null, "nothing"), (@"\\server\share\x", "a UNC path"), (@"\\?\C:\Users\x", @"a \\?\ path"), (@"\\.\PhysicalDrive0", "a device path"),
+        ("relative\\x", "a relative path"), (Path.Combine(profile, "..", "..", "Windows"), "\"..\" climbing out"), (profile, "the profile itself"),
+        (profile + "-other\\x", "a sibling whose name starts like the profile"), (Path.Combine(profile, "a:stream"), "an alternate data stream"),
+        (Path.Combine(profile, new string('x', 300)), "an overlong path"), (@"C:\Windows\System32", "outside the profile"), ("C:", "a bare drive") })
+        Check(Ecosystem.CardFolder(bad, profile) == null, $"a card's data folder is refused: {why}");
+    Check(Ecosystem.CardFolder(Path.Combine(profile, "AppData", "Local", "X") + "\\", profile) == Path.Combine(profile, "AppData", "Local", "X"), "a card's data folder inside the profile is taken");
+}
+
 // ---- a failed update check is a failure, never "nothing newer" ----
 bool CheckFails(string feed)
 {

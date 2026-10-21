@@ -21,8 +21,13 @@ Screenshots, a comparison with other backup tools and the full guide: **[protago
   is: restore it whole into a folder, or find one file in it. An encrypted one asks for its password. A
   backup in one of your jobs' destinations can also go back to its original places.
 - **Several jobs**, each with its own folders, destination, format, schedule and retention.
-- **When:** manually, hourly, every 6 hours, daily or weekly; a minute after files change; and when the
-  backup drive is plugged in (found again even if it comes back under another letter).
+- **When:** manually, hourly, every 6 hours, daily at a time you choose or weekly on a day and time you
+  choose; a minute after files change; and when the backup drive is plugged in (found again even if it comes
+  back under another letter). If the PC is off or asleep at that time, the backup runs once when it is next
+  on. A new job never starts by itself while you set it up: it waits for its first time, or for "Back up now".
+- **Back up our apps' data:** one click makes a job for the settings and data of the Protagonist Labs apps
+  on this PC (`%APPDATA%\ProtagonistLabs` and each installed app's own folder), leaving out covers,
+  trailers and caches the apps download again. It asks only where the backups go; a second click opens it.
 - **Smart retention:** everything from the last day, one a day for a month, one a week for a year. Or simply the last N.
 - **Exclusions:** `node_modules; *.tmp; C:\Users\me\AppData`.
 - **Open files** (Outlook `.pst`, databases) through a Volume Shadow Copy. Windows asks for administrator
@@ -66,7 +71,9 @@ whose asset ends in `setup.exe` and checks it against the SHA-256 GitHub publish
 |---|---|
 | `Engine.cs` | backup, retention, restore, file versions, shadow copies |
 | `Crypto.cs` | the encrypted archive stream, the saved password (DPAPI) |
-| `Program.cs` | entry point, jobs and settings, USB drive tracking, the elevated run for open files |
+| `Program.cs` | entry point, USB drive tracking, the elevated run for open files |
+| `Jobs.cs` | jobs, settings (and reading older settings files), when a job runs (`Schedule`) |
+| `Ecosystem.cs` | the shared `%APPDATA%\ProtagonistLabs` folder: card, jobs file, sister apps, the apps' data job |
 | `MainWindow.xaml(.cs)` | the window, tray, scheduling, real-time watching |
 | `Updater.cs`, `UpdateDialog.xaml` | self-update from GitHub releases |
 | `installer/` | Inno Setup script and the icon generator |
