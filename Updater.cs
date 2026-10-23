@@ -18,9 +18,9 @@ namespace Backup;
 //   • "Later" silences that one version for this session only, and the manual check ignores it,
 //     because asking explicitly deserves an answer;
 //   • updating downloads the release's installer, checks its size and the SHA-256 GitHub publishes
-//     for it, then hands off to a detached one-shot .cmd and quits: nothing in this process can outlive
-//     the installer that is about to overwrite it. The script waits for us to go, runs the installer
-//     silently, and starts the app again (a silent install suppresses the installer's own relaunch).
+//     for it, then starts it through the shell, elevated (Backup Labs installs per machine since 1.6.0,
+//     in Program Files), and quits. The installer stops whatever is left of us and starts the new
+//     version when it is done; a "no" to the UAC prompt leaves this version running as it was.
 public static class Updater
 {
     public const string Repo = "limburatorul/backup-labs";
@@ -117,20 +117,9 @@ public static class Updater
         return path;
     }
 
-    /// Hands off to a detached script and returns; the caller then quits so the installer can replace us.
-    public static void InstallAndRestart(string installer)
-    {
-        var exe = Environment.ProcessPath;
-        var pid = Environment.ProcessId;
-        var script = Path.Combine(Path.GetTempPath(), $"backuplabs-update-{pid}.cmd");
-        File.WriteAllText(script, $"""
-            @echo off
-            :wait
-            tasklist /FI "PID eq {pid}" | find "{pid}" >nul && (timeout /t 1 /nobreak >nul & goto wait)
-            "{installer}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART
-            start "" "{exe}"
-            del "%~f0"
-            """);
-        Process.Start(new ProcessStartInfo("cmd.exe", $"/c \"{script}\"") { CreateNoWindow = true, UseShellExecute = false });
-    }
+    /// Starts the installer, which installs for every user and so asks Windows for permission (UAC), then stops this
+    /// app itself and starts the new version when it is done (its [Run] entry for a silent install). Throws
+    /// Win32Exception when the user says no; nothing has changed then. The caller quits right after.
+    public static void Install(string installer) =>
+        Process.Start(new ProcessStartInfo(installer, "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART") { UseShellExecute = true, Verb = "runas" });
 }

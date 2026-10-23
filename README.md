@@ -4,7 +4,7 @@ Backups for Windows that you set up once and stop thinking about. Pick any folde
 pick where the backups go, and Backup Labs keeps them, on a schedule, when files change, or when you
 plug in the backup drive.
 
-**[Download the installer](https://github.com/limburatorul/backup-labs/releases/latest)** — Windows 10/11, x64, no admin rights needed. The app updates itself.
+**[Download the installer](https://github.com/limburatorul/backup-labs/releases/latest)** — Windows 10/11, x64. Installs for every user in `C:\Program Files\ProtagonistLabs\Backup Labs` (installing and updating ask for admin rights once). The app updates itself.
 Screenshots, a comparison with other backup tools and the full guide: **[protagonistlabs.app/backuplabs](https://protagonistlabs.app/backuplabs/?utm_source=github&utm_medium=readme&utm_campaign=backuplabs)**.
 
 ## What it does
@@ -26,7 +26,7 @@ Screenshots, a comparison with other backup tools and the full guide: **[protago
   back under another letter). If the PC is off or asleep at that time, the backup runs once when it is next
   on. A new job never starts by itself while you set it up: it waits for its first time, or for "Back up now".
 - **Back up our apps' data:** one click makes a job for the settings and data of the Protagonist Labs apps
-  on this PC (`%APPDATA%\ProtagonistLabs` and each installed app's own folder), leaving out covers,
+  on this PC (`%APPDATA%\ProtagonistLabs`, where every studio app keeps its data), leaving out covers,
   trailers and caches the apps download again. It asks only where the backups go; a second click opens it.
 - **Smart retention:** everything from the last day, one a day for a month, one a week for a year. Or simply the last N.
 - **Exclusions:** `node_modules; *.tmp; C:\Users\me\AppData`.
@@ -79,11 +79,11 @@ whose asset ends in `setup.exe` and checks it against the SHA-256 GitHub publish
 | `installer/` | Inno Setup script and the icon generator |
 | `tests/` | engine checks (`--vss <file>` runs the shadow-copy check, needs admin) |
 
-Settings and the log are in `%APPDATA%\BackupLabs`.
+Settings and the log are in `%APPDATA%\ProtagonistLabs\Backup Labs` (moved there from `%APPDATA%\BackupLabs` in 1.6.0, by the installer or at the first start).
 
 Archives are `<date>.bkl`. Plain or encrypted is told by the first 8 bytes (`BKLENC1\0` = encrypted, see
-`Crypto.cs`), never by the extension. The installer registers `.bkl` for the current user
-(`HKCU\Software\Classes\.bkl` → `BackupLabs.Backup`, "Backup Labs backup", the app's icon) and removes it on
+`Crypto.cs`), never by the extension. The installer registers `.bkl` for every user
+(`HKLM\Software\Classes\.bkl` → `BackupLabs.Backup`, "Backup Labs backup", the app's icon) and removes it on
 uninstall; opening one runs `BackupLabs.exe --open "<file>"`, which a running copy takes over.
 
 For UI checks only: `BACKUPLABS_TEST_ROOT=<folder>` runs a separate copy whose settings, log and

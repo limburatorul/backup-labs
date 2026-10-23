@@ -10,7 +10,7 @@
     <RootNamespace>Backup</RootNamespace>
     <AssemblyName>BackupLabs</AssemblyName>
     <!-- the only place a version is written: build.ps1, the installer and the updater all read it -->
-    <Version>1.5.0</Version>
+    <Version>1.6.0</Version>
     <Product>Backup Labs</Product>
     <Company>Protagonist Labs</Company>
     <ApplicationIcon>app.ico</ApplicationIcon>
@@ -19,5 +19,8 @@
     <Compile Remove="tests\**;dist\**" />
     <Page Remove="tests\**;dist\**" />
     <None Remove="tests\**;dist\**" />
+    <!-- What's new: the notes of every release, and a picture for the ones that have one, built into the exe -->
+    <EmbeddedResource Include="whatsnew.txt" LogicalName="whatsnew.txt" />
+    <EmbeddedResource Include="WhatsNew\*.jpg" LogicalName="WhatsNew.%(Filename).jpg" />
   </ItemGroup>
 </Project>

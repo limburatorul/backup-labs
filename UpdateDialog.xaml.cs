@@ -7,14 +7,14 @@ using System.Windows;
 
 namespace Backup;
 
-// "Update available" — and, after an update has landed, the same window as a read-only "What's new".
+// "Update available": the release's notes from GitHub, and Update now. (What's new after an update is WhatsNewWindow.)
 public partial class UpdateDialog : Window
 {
     readonly Updater.Release release;
     readonly CancellationTokenSource cancel = new();
 
     // owner is null while the main window sits hidden in the tray (WPF refuses a never-shown owner)
-    public UpdateDialog(Window? owner, Updater.Release release, bool notesOnly = false)
+    public UpdateDialog(Window? owner, Updater.Release release)
     {
         InitializeComponent();
         if (owner != null) Owner = owner;
@@ -22,20 +22,8 @@ public partial class UpdateDialog : Window
         this.release = release;
         SourceInitialized += (_, _) => MainWindow.Glass(this);
         Notes.Text = release.Notes.Trim() == "" ? "No release notes." : release.Notes.Trim();
-
-        if (notesOnly)
-        {
-            Title = "What's new";
-            Heading.Text = $"Backup Labs {release.Version}";
-            Sub.Text = "Updated on this machine.";
-            UpdateButton.Visibility = Visibility.Collapsed;
-            LaterButton.Content = "Close";
-        }
-        else
-        {
-            Heading.Text = $"Backup Labs {release.Version} is available";
-            Sub.Text = $"You have {Updater.Current}. The installer is {MainWindow.Size(release.AssetSize)}.";
-        }
+        Heading.Text = $"Backup Labs {release.Version} is available";
+        Sub.Text = $"You have {Updater.Current}. The installer is {MainWindow.Size(release.AssetSize)}. Windows will ask for permission to install it.";
         Closed += (_, _) => cancel.Cancel();
     }
 
@@ -56,9 +44,16 @@ public partial class UpdateDialog : Window
         {
             var progress = new Progress<double>(p => { DownloadBar.Value = p; Status.Text = $"Downloading… {p * 100:0}%"; });
             var installer = await Updater.Download(release, progress, cancel.Token);
-            Status.Text = "Installing — Backup Labs will restart.";
-            Updater.InstallAndRestart(installer);
-            ((MainWindow)Application.Current.MainWindow).Exit(); // the installer replaces our files; nothing of ours may stay
+            Status.Text = "Waiting for Windows' permission…";
+            try { Updater.Install(installer); }
+            catch (System.ComponentModel.Win32Exception) // "No" on the UAC prompt: this version goes on as it was
+            {
+                DownloadBar.Visibility = Visibility.Collapsed;
+                Status.Text = "Update not installed.";
+                UpdateButton.IsEnabled = LaterButton.IsEnabled = true;
+                return;
+            }
+            ((MainWindow)Application.Current.MainWindow).Exit(); // the installer replaces our files and starts the new version
         }
         catch (Exception ex) when (ex is HttpRequestException or IOException or TaskCanceledException)
         {

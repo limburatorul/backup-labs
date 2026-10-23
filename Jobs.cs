@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -63,7 +64,8 @@ public sealed class AppSettings
 
 static class Store
 {
-    public static readonly string DataDir = Path.Combine(Ecosystem.AppData, "BackupLabs");
+    // with the other studio apps' data since 1.6.0; moved from %APPDATA%\BackupLabs on the first start (see DataFolder)
+    public static readonly string DataDir = Ecosystem.DataFolder(Path.Combine(Ecosystem.AppData, "BackupLabs"), Path.Combine(Ecosystem.Root, "Backup Labs"));
     static readonly string SettingsPath = Path.Combine(DataDir, "settings.json");
     public static readonly string LogPath = Path.Combine(DataDir, "backup.log");
     static readonly object LogLock = new();
@@ -77,6 +79,11 @@ static class Store
             catch (JsonException e) { Log("Settings unreadable, starting fresh: " + e.Message); }
         s ??= new AppSettings { TimedSchedules = true };
         if (s.Jobs.Count == 0) s.Jobs.Add(new Job());
+        if (s.Jobs.FirstOrDefault(j => j.Id == Ecosystem.AppsJobId) is { } apps && Ecosystem.MoveAppsJob(apps.Sources, apps.Exclude))
+        {
+            Log($"{apps.Name}: now backs up {string.Join("; ", apps.Sources)}, where every studio app keeps its data");
+            Save(s);
+        }
         return s;
     }
 

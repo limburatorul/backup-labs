@@ -1,6 +1,11 @@
 using System.IO.Compression;
 using Backup;
 
+// Before anything else: the app's code under test resolves %APPDATA% through BACKUPLABS_TEST_ROOT (Ecosystem.TestRoot),
+// and reading Store's settings folder moves %APPDATA%\BackupLabs into the shared folder. Never the user's own.
+Environment.SetEnvironmentVariable("BACKUPLABS_TEST_ROOT", Path.Combine(Path.GetTempPath(), "backup-test-appdata-" + DateTime.Now.Ticks));
+if (!Ecosystem.AppData.StartsWith(Path.GetTempPath())) { Console.WriteLine("FAIL the tests would reach the real %APPDATA%"); return 1; }
+
 // Disk cloning on virtual disks. Needs admin: Tests.exe --clone <result file>
 if (args.Length >= 2 && args[0] == "--clone") return CloneTests.Run(args[1], args.Length > 2 ? args[2] : null);
 
@@ -391,61 +396,77 @@ Check(Kept(Ecosystem.StashJobId), "nor no file at all");
     Check(odd.At == 12 * 60 && odd.Day == DayOfWeek.Monday && odd.Since == upgraded, "a hand-edited time, day or future date falls back to sane values");
     Check(Store.Parse("null", upgraded) == null, "an empty settings file is no settings");
 }
-// ---- 1.5.0: "Back up our apps' data" ----
+// ---- 1.6.0: every app's data in %APPDATA%\ProtagonistLabs; the apps job backs up that folder alone ----
 {
     var pr = Path.Combine(root, "preset");
-    var profile = Path.Combine(pr, "profile");
-    var roaming = Path.Combine(profile, "AppData", "Roaming");
+    var roaming = Path.Combine(pr, "profile", "AppData", "Roaming");
     var programData = Path.Combine(pr, "programdata");
     var plRoot = Path.Combine(roaming, "ProtagonistLabs");
-    Directory.CreateDirectory(Path.Combine(plRoot, "apps"));
-    Directory.CreateDirectory(Path.Combine(plRoot, "data"));
-    File.WriteAllText(Path.Combine(plRoot, "data", "shelf.games.json"), "{}");
-    var exe = Path.Combine(pr, "App.exe");
-    File.WriteAllText(exe, "");
-    void AppCard(string id, object o) => File.WriteAllText(Path.Combine(plRoot, "apps", id + ".json"), J(o));
-    void Fill(string dir, int kb) { Directory.CreateDirectory(dir); File.WriteAllBytes(Path.Combine(dir, "f.bin"), new byte[kb * 1024]); }
-    // Shelf: its settings and saves, art and trailers it downloads again, Chromium's caches (sizes made up, in proportion)
+    var (fresh, freshExcl) = (new List<string> { plRoot }, Ecosystem.AppsExclude(plRoot));
+    Check(fresh.SequenceEqual(new[] { plRoot }) && freshExcl.Count == 13, "the button's job: the shared folder alone, 13 cache patterns left out");
+
+    // the job as 1.5.0 made it on the user's PC (23.10.2026), plus a folder and an exclusion the user added by hand
     var gb = Path.Combine(roaming, "game-browser");
-    Fill(gb, 64); Fill(Path.Combine(gb, "save-backups"), 512);
-    Fill(Path.Combine(gb, "covers"), 3000); Fill(Path.Combine(gb, "screenshots"), 2000); Fill(Path.Combine(gb, "trailers"), 9000); Fill(Path.Combine(gb, "thumbs"), 800);
-    Fill(Path.Combine(gb, "Cache"), 1500); Fill(Path.Combine(gb, "Code Cache"), 700); Fill(Path.Combine(gb, "GPUCache"), 100);
-    Fill(Path.Combine(gb, "library", "Cache"), 10); // a "Cache" deeper down is the app's own: kept
-    AppCard("shelf", new { schema = 1, id = "shelf", exe });
-    Fill(Path.Combine(roaming, "reel"), 10);
-    AppCard("reel", new { schema = 1, id = "reel", exe = Path.Combine(pr, "gone.exe") });          // uninstalled: left out
-    Fill(Path.Combine(roaming, "Reminder"), 10);
-    AppCard("reminder", new { schema = 1, id = "reminder", exe, data = @"\\server\share\Reminder" }); // hostile data path: the known folder instead
-    var lumeData = Path.Combine(profile, "Documents", "Lume data");
-    Fill(lumeData, 10); Fill(Path.Combine(lumeData, "icons"), 300); Fill(Path.Combine(roaming, "Lume"), 10);
-    AppCard("lume", new { schema = 1, id = "lume", exe, data = lumeData });                         // a card that says where: used
-    Fill(Path.Combine(roaming, "Glaze"), 10);
-    AppCard("glaze", new { schema = 1, id = "glaze", exe, data = @"C:\Windows" });                  // outside the profile: the known folder instead
-    AppCard("autoclicker", new { schema = 1, id = "autoclicker", exe });                             // installed, no folder: left out
-    Fill(Path.Combine(programData, "Sysoptimizer"), 10);
-    File.WriteAllText(Path.Combine(plRoot, "apps", "sysoptimizer.json"), "\uFEFF" + J(new { schema = 1, id = "sysoptimizer", exe, data = 5 })); // BOM, data not a string
-    File.WriteAllText(Path.Combine(plRoot, "apps", "frostpane.json"), "{ broken");
-    Fill(Path.Combine(roaming, "Frostpane"), 10);
-    Fill(Path.Combine(roaming, "BackupLabs"), 10);
-    var (sources, excl) = Ecosystem.AppsJob(plRoot, roaming, programData, profile);
-    Check(sources.SequenceEqual(new[] { plRoot, gb, Path.Combine(roaming, "Reminder"), lumeData, Path.Combine(roaming, "Glaze"), Path.Combine(programData, "Sysoptimizer"), Path.Combine(roaming, "BackupLabs") }),
-          "apps' data: the shared folder, installed apps' folders that exist (a card's own `data` when it is safe), Backup Labs itself; not uninstalled, broken or missing ones");
-    Check(excl.SequenceEqual(new[] { "covers", "screenshots", "trailers", "thumbs", "Cache", "Code Cache", "GPUCache" }.Select(n => Path.Combine(gb, n)).Append(Path.Combine(lumeData, "icons"))),
-          "caches that exist are left out, by full path");
-    var with = Engine.Run(new RunOptions(sources, Path.Combine(pr, "dst-with")) { Exclude = excl }, log.Add, null, default);
-    var without = Engine.Run(new RunOptions(sources, Path.Combine(pr, "dst-without")), log.Add, null, default);
-    Console.WriteLine($"     synthetic apps' data: {Engine.Size(without.BytesCopied)} in full, {Engine.Size(with.BytesCopied)} with the caches left out ({with.Copied} files)");
-    Check(with.Failed == 0 && File.Exists(Path.Combine(with.Snapshot, Engine.RelPath(gb), "library", "Cache", "f.bin"))
-          && File.Exists(Path.Combine(with.Snapshot, Engine.RelPath(gb), "save-backups", "f.bin"))
-          && !Directory.Exists(Path.Combine(with.Snapshot, Engine.RelPath(gb), "trailers")) && with.BytesCopied < without.BytesCopied / 10,
-          "the job backs up settings and saves, not the caches (under a tenth of the bytes here)");
-    foreach (var (bad, why) in new (string?, string)[] {
-        (null, "nothing"), (@"\\server\share\x", "a UNC path"), (@"\\?\C:\Users\x", @"a \\?\ path"), (@"\\.\PhysicalDrive0", "a device path"),
-        ("relative\\x", "a relative path"), (Path.Combine(profile, "..", "..", "Windows"), "\"..\" climbing out"), (profile, "the profile itself"),
-        (profile + "-other\\x", "a sibling whose name starts like the profile"), (Path.Combine(profile, "a:stream"), "an alternate data stream"),
-        (Path.Combine(profile, new string('x', 300)), "an overlong path"), (@"C:\Windows\System32", "outside the profile"), ("C:", "a bare drive") })
-        Check(Ecosystem.CardFolder(bad, profile) == null, $"a card's data folder is refused: {why}");
-    Check(Ecosystem.CardFolder(Path.Combine(profile, "AppData", "Local", "X") + "\\", profile) == Path.Combine(profile, "AppData", "Local", "X"), "a card's data folder inside the profile is taken");
+    var mine = @"D:\My notes";
+    var sources = new List<string> { plRoot }
+        .Concat(new[] { "game-browser", "reel", "SteamRadar", "Lume", "Frostpane", "FileLabs", "ThunderbirdBackup", "SpaceScan", "AutoClicker", "Glaze" }.Select(f => Path.Combine(roaming, f)))
+        .Append(Path.Combine(programData, "Sysoptimizer")).Append(Path.Combine(roaming, "BackupLabs")).Append(mine).ToList();
+    var excl = new List<string> { Path.Combine(gb, "covers"), Path.Combine(gb, "Cache"), Path.Combine(roaming, "Lume", "icons"), "*.tmp" };
+    Check(Ecosystem.MoveAppsJob(sources, excl, plRoot, roaming, programData) && sources.SequenceEqual(new[] { plRoot, mine }),
+          "the apps job: old per-app folders out, the shared folder first, a folder the user added stays");
+    Check(excl[0] == "*.tmp" && excl.Skip(1).SequenceEqual(Ecosystem.AppsExclude(plRoot)), "its old caches' exclusions give way to the new ones; the user's own stays");
+    Check(!Ecosystem.MoveAppsJob(sources, excl, plRoot, roaming, programData) && sources.Count == 2 && excl.Count == 14, "a second start changes nothing");
+    var edited = new List<string> { mine };
+    Check(!Ecosystem.MoveAppsJob(edited, new List<string>(), plRoot, roaming, programData) && edited.SequenceEqual(new[] { mine }),
+          "a job the user later trimmed to their own folder is left alone");
+    var inside = new List<string> { Path.Combine(roaming, "reel"), Path.Combine(plRoot, "Shelf") + "\\", Path.Combine(roaming, "game-browser-old") };
+    Check(Ecosystem.MoveAppsJob(inside, new List<string>(), plRoot, roaming, programData) && inside.SequenceEqual(new[] { plRoot, Path.Combine(roaming, "game-browser-old") }),
+          "a folder inside the shared one would be backed up twice: out; a sibling whose name starts like an old folder stays");
+
+    // the patterns do what they say, on a synthetic shared folder after every app moved in
+    void Fill(string dir, int kb) { Directory.CreateDirectory(dir); File.WriteAllBytes(Path.Combine(dir, "f.bin"), new byte[kb * 1024]); }
+    var shelfDir = Path.Combine(plRoot, "Shelf");
+    Fill(shelfDir, 64); Fill(Path.Combine(shelfDir, "save-backups"), 512);
+    Fill(Path.Combine(shelfDir, "covers"), 3000); Fill(Path.Combine(shelfDir, "trailers"), 9000); Fill(Path.Combine(shelfDir, "Cache"), 1500); Fill(Path.Combine(shelfDir, "GPUCache"), 100);
+    Fill(Path.Combine(plRoot, "Reel", "Code Cache"), 700); Fill(Path.Combine(plRoot, "Reel", "posters"), 50);
+    Fill(Path.Combine(plRoot, "Lume", "icons"), 300); Fill(Path.Combine(plRoot, "Backup Labs"), 10); Fill(Path.Combine(plRoot, "apps"), 1);
+    var with = Engine.Run(new RunOptions(fresh, Path.Combine(pr, "dst-with")) { Exclude = freshExcl }, log.Add, null, default);
+    var without = Engine.Run(new RunOptions(fresh, Path.Combine(pr, "dst-without")), log.Add, null, default);
+    Console.WriteLine($"     synthetic shared folder: {Engine.Size(without.BytesCopied)} in full, {Engine.Size(with.BytesCopied)} with the caches left out ({with.Copied} files)");
+    string In(string p) => Path.Combine(with.Snapshot, Engine.RelPath(p), "f.bin");
+    Check(with.Failed == 0 && File.Exists(In(Path.Combine(shelfDir, "save-backups"))) && File.Exists(In(Path.Combine(plRoot, "Reel", "posters"))) && File.Exists(In(Path.Combine(plRoot, "Backup Labs")))
+          && !File.Exists(In(Path.Combine(shelfDir, "trailers"))) && !File.Exists(In(Path.Combine(plRoot, "Reel", "Code Cache"))) && !File.Exists(In(Path.Combine(plRoot, "Lume", "icons")))
+          && with.BytesCopied < without.BytesCopied / 10,
+          "the job backs up every app's settings and saves, not the caches (under a tenth of the bytes here)");
+
+    // Backup Labs' own folder, moved once by a rename
+    var oldData = Path.Combine(pr, "old", "BackupLabs");
+    var newData = Path.Combine(pr, "new", "ProtagonistLabs", "Backup Labs");
+    Fill(oldData, 1);
+    Check(Ecosystem.DataFolder(oldData, newData) == newData && !Directory.Exists(oldData) && File.Exists(Path.Combine(newData, "f.bin")), "data folder: moved to the shared folder");
+    Check(Ecosystem.DataFolder(oldData, newData) == newData && File.Exists(Path.Combine(newData, "f.bin")), "and a second start finds nothing to move");
+    Fill(oldData, 2);
+    Check(Ecosystem.DataFolder(oldData, newData) == newData && File.Exists(Path.Combine(oldData, "f.bin")) && new FileInfo(Path.Combine(newData, "f.bin")).Length == 1024
+          && File.ReadAllText(Path.Combine(newData, "backup.log")).Contains("was left where it is"), "both holding data: nothing mixed, the old one stays, the log says so");
+    Directory.Delete(newData, true);
+    Directory.CreateDirectory(newData);
+    Check(Ecosystem.DataFolder(oldData, newData) == newData && !Directory.Exists(oldData) && new FileInfo(Path.Combine(newData, "f.bin")).Length == 2048, "an empty new folder is taken over");
+    Fill(oldData, 3);
+    Directory.Delete(newData, true);
+    using (new FileStream(Path.Combine(oldData, "f.bin"), FileMode.Open, FileAccess.Read, FileShare.None))
+        Check(Ecosystem.DataFolder(oldData, newData) == oldData && File.Exists(Path.Combine(oldData, "f.bin")), "a file held open: this session uses the old folder, nothing half moved");
+    Check(Ecosystem.DataFolder(oldData, newData) == newData && !Directory.Exists(oldData), "and the next start moves it");
+
+    Check(Ecosystem.Uninstalled("{00000000-0000-0000-0000-000000000000}_is1") == null, "an app with no uninstall entry anywhere is not installed");
+}
+
+// ---- What's new: the notes built into the exe ----
+{
+    var heads = File.ReadAllLines(Path.Combine(AppContext.BaseDirectory, "whatsnew.txt")).Where(l => l.StartsWith("## ")).Select(l => l[3..].Split(" | ")).ToList();
+    Check(heads.Count > 10 && heads.All(h => h.Length == 3 && Version.TryParse(h[0], out _) && DateTime.TryParseExact(h[1], "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None, out _) && h[2].Trim() != ""),
+          "What's new: every release reads as version | date | title");
+    var csproj = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "Backup.csproj"));
+    Check(csproj.Contains($"<Version>{heads[0][0]}</Version>"), "What's new: the newest release is the version being built");
 }
 
 // ---- a failed update check is a failure, never "nothing newer" ----

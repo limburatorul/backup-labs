@@ -60,6 +60,8 @@ public partial class MainWindow : Window
         // only jobs that can run now: a request left on an unfinished job started it the moment it was finished
         menu.Items.Add("Back up all jobs now", null, (_, _) => { foreach (var j in app.Jobs.Where(j => Problem(j) == null)) j.Requested = true; Pump(); });
         menu.Items.Add(new Forms.ToolStripSeparator());
+        menu.Items.Add("What's new", null, (_, _) => WhatsNewWindow.Open(IsVisible ? this : null));
+        menu.Items.Add(new Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => Exit());
         tray = new Forms.NotifyIcon { Icon = icon, Text = "Backup Labs", Visible = true, ContextMenuStrip = menu };
         tray.MouseClick += (_, e) => { if (e.Button == Forms.MouseButtons.Left) ShowWindow(); };
@@ -391,8 +393,8 @@ public partial class MainWindow : Window
         Refresh();
     }
 
-    // In File Labs, the sister app, when it is installed: found through the uninstall entry its
-    // installer writes ("never change AppId", its script says). Otherwise in whatever opens folders
+    // In File Labs, the sister app, when it is installed: found through its card, else the uninstall entry its
+    // installer writes ("never change AppId", its script says), per machine or per user. Otherwise in whatever opens folders
     // on this PC, which is File Explorer unless the user chose something else.
     void Open_Click(object sender, RoutedEventArgs e)
     {
@@ -409,8 +411,7 @@ public partial class MainWindow : Window
         Process.Start(start);
     }
 
-    static string? FileLabsExe() =>
-        Registry.GetValue(@"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\{7E4C2B9A-3F1D-4C8E-9A6B-51D0C2E8F4A7}_is1", "DisplayIcon", null) is string exe && File.Exists(exe) ? exe : null;
+    static string? FileLabsExe() => Ecosystem.Exe("filelabs") ?? Ecosystem.Uninstalled("{7E4C2B9A-3F1D-4C8E-9A6B-51D0C2E8F4A7}_is1");
 
     // ---- Works with: the sister apps that add something here, one quiet line each ----
 
@@ -988,7 +989,7 @@ public partial class MainWindow : Window
         first.Tick += async (_, _) =>
         {
             first.Stop();
-            await ShowWhatsNew();
+            WhatsNewWindow.OpenOnceAfterUpdate(app, IsVisible ? this : null, Save);
             await CheckForUpdate(manual: false);
         };
         first.Start();
@@ -1014,21 +1015,7 @@ public partial class MainWindow : Window
         return null;
     }
 
-    // First launch after an update: the release notes for the version now running.
-    async Task ShowWhatsNew()
-    {
-        var current = Updater.Current.ToString();
-        if (app.LastSeenVersion == current) return;
-        bool upgraded = app.LastSeenVersion != "";       // empty = fresh install, nothing to show
-        app.LastSeenVersion = current;
-        Save();
-        if (!upgraded) return;
-        // Check() only returns something newer than us; right after updating, the latest IS us.
-        Updater.Release? latest;
-        try { latest = await Updater.Latest(); }
-        catch (Exception ex) when (Updater.Failed(ex)) { return; } // offline: the notes just aren't shown
-        if (latest?.Version.ToString() == current) new UpdateDialog(IsVisible ? this : null, latest, notesOnly: true).Show();
-    }
+    void WhatsNew_Click(object sender, RoutedEventArgs e) => WhatsNewWindow.Open(this);
 
     async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {

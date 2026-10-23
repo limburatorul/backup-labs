@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Microsoft.Win32;
 
 namespace Backup;
 
@@ -201,70 +202,84 @@ static class Ecosystem
     // Electron's own caches, rebuilt on the next start
     static readonly string[] Chromium = { "Cache", "Code Cache", "GPUCache", "DawnCache", "DawnGraphiteCache", "DawnWebGPUCache", "Shared Dictionary", "Crashpad" };
 
-    // Where each app keeps its settings and data, read from its source (folder names are the apps' own, set in code),
-    // and what in there it downloads again by itself. Under Roaming AppData, Sysoptimizer's under ProgramData.
-    // Not here: Planner (its plan sits next to its exe; AppData only holds a browser profile), Cursor Selector (next
-    // to its exe), HotkeyScan (keeps nothing but its card).
-    static readonly (string Id, string Folder, string[] Skip)[] AppFolders =
-    {
-        ("shelf", "game-browser", new[] { "covers", "screenshots", "trailers", "thumbs" }.Concat(Chromium).ToArray()), // art and trailers come back from Steam
-        ("reel", "reel", Chromium),
-        ("reminder", "Reminder", Chromium),
-        ("steamradar", "SteamRadar", Chromium),
-        ("lume", "Lume", new[] { "icons" }.Concat(Chromium).ToArray()), // icons: a cache of the apps' own icons
-        ("frostpane", "Frostpane", Array.Empty<string>()),
-        ("filelabs", "FileLabs", Array.Empty<string>()),
-        ("stash", "ThunderbirdBackup", Array.Empty<string>()),
-        ("spacescan", "SpaceScan", Array.Empty<string>()),
-        ("autoclicker", "AutoClicker", Array.Empty<string>()),
-        ("glaze", "Glaze", Array.Empty<string>()),
-        ("sysoptimizer", "Sysoptimizer", Array.Empty<string>()), // in ProgramData: it runs as a service too
-        ("backuplabs", "BackupLabs", Array.Empty<string>()),
-    };
+    // Where each app kept its data before every app moved into the shared folder (1.5.0's job listed them one by one).
+    // All under Roaming AppData; Sysoptimizer's under ProgramData.
+    static readonly string[] OldFolders = { "game-browser", "reel", "Reminder", "SteamRadar", "Lume", "Frostpane", "FileLabs", "ThunderbirdBackup", "SpaceScan", "AutoClicker", "Glaze", "BackupLabs" };
 
-    public static (List<string> Sources, List<string> Exclude) AppsJob() => AppsJob(Root, AppData,
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+    public static (List<string> Sources, List<string> Exclude) AppsJob() => (new() { Root }, AppsExclude(Root));
 
-    /// The shared folder, plus the data folder of each studio app installed here (its card exists and its exe too;
-    /// Backup Labs always). A folder is the one the card names in `data`, when that passes CardFolder, else the
-    /// one in AppFolders. Only folders that exist; the caches in them that exist go into the exclusions, as paths, so
-    /// a "Cache" folder elsewhere is still backed up. The parameters are a test's; the app passes the real ones.
-    public static (List<string> Sources, List<string> Exclude) AppsJob(string root, string roaming, string programData, string profile)
+    /// Every studio app keeps its settings and data in the shared folder, %APPDATA%\ProtagonistLabs\<App>, so the job
+    /// is that folder alone. Left out: what the apps download or rebuild by themselves, as path patterns, so an app
+    /// that moves its data in later is covered too. Chromium's caches sit at the top of each Electron app's folder;
+    /// Shelf's art and trailers come back from the stores, Lume's icons from the apps.
+    public static List<string> AppsExclude(string root) =>
+        Chromium.Select(n => Path.Combine(root, "*", n))
+            .Concat(new[] { "covers", "screenshots", "trailers", "thumbs" }.Select(n => Path.Combine(root, "Shelf", n)))
+            .Append(Path.Combine(root, "Lume", "icons")).ToList();
+
+    public static bool MoveAppsJob(List<string> sources, List<string> exclude) => MoveAppsJob(sources, exclude, Root, AppData,
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));
+
+    /// 1.5.0's job, brought to the shared folder: the apps' old folders (and anything inside the shared folder, which
+    /// would be backed up twice) leave the sources, the shared folder comes first, the old caches' exclusions give way
+    /// to the new ones. A folder or file the user added that is none of these stays, and so do their own exclusions.
+    /// Only while an old folder is still listed, so it runs once and a later edit by the user is never undone.
+    /// True when the job changed. The paths are a test's; the app passes the real ones.
+    public static bool MoveAppsJob(List<string> sources, List<string> exclude, string root, string roaming, string programData)
     {
-        var sources = new List<string>();
-        var exclude = new List<string>();
-        if (Directory.Exists(root)) sources.Add(Path.GetFullPath(root));
-        foreach (var (id, known, skip) in AppFolders)
-        {
-            if (id != "backuplabs" && Exe(id, root) == null) continue;
-            var folder = CardFolder(CardData(id, root), profile)
-                ?? Path.Combine(id == "sysoptimizer" ? programData : roaming, known);
-            if (!Directory.Exists(folder) || sources.Contains(folder, StringComparer.OrdinalIgnoreCase)) continue;
-            sources.Add(folder);
-            exclude.AddRange(skip.Select(n => Path.Combine(folder, n)).Where(Directory.Exists));
-        }
-        return (sources, exclude);
+        var old = OldFolders.Select(f => Path.Combine(roaming, f)).Append(Path.Combine(programData, "Sysoptimizer")).ToList();
+        bool Old(string p) => old.Any(o => Under(p, o));
+        if (!sources.Any(Old)) return false;
+        sources.RemoveAll(p => Old(p) || Under(p, root));
+        sources.Insert(0, root);
+        exclude.RemoveAll(Old);
+        exclude.AddRange(AppsExclude(root).Where(x => !exclude.Contains(x, StringComparer.OrdinalIgnoreCase)));
+        return true;
     }
 
-    static string? CardData(string id, string root)
+    static bool Under(string path, string folder) =>
+        path.TrimEnd('\\').Equals(folder, StringComparison.OrdinalIgnoreCase) || path.StartsWith(folder + @"\", StringComparison.OrdinalIgnoreCase);
+
+    // ---- where Backup Labs keeps its own settings and log ----
+
+    /// %APPDATA%\ProtagonistLabs\Backup Labs, moved there from %APPDATA%\BackupLabs once, before anything in it is opened
+    /// (the installer does the same; whichever runs first does it). A rename, never a copy: instant, and nothing is ever
+    /// half moved. When the new folder already holds something, nothing is mixed: the old one stays and the log says so.
+    /// When the rename fails (a file held open), this session uses the old folder and the next start tries again.
+    public static string DataFolder(string old, string now)
     {
+        if (!Directory.Exists(old)) return now;
         try
         {
-            using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(root, "apps", id + ".json")));
-            var c = doc.RootElement;
-            return c.ValueKind == JsonValueKind.Object && c.TryGetProperty("data", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
+            if (Directory.Exists(now))
+            {
+                if (Directory.EnumerateFileSystemEntries(now).Any())
+                {
+                    File.AppendAllText(Path.Combine(now, "backup.log"), $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}  {old} was left where it is: {now} already holds data{Environment.NewLine}");
+                    return now;
+                }
+                Directory.Delete(now);
+            }
+            Directory.CreateDirectory(Path.GetDirectoryName(now)!);
+            Directory.Move(old, now);
+            return now;
         }
-        catch (Exception e) when (e is IOException or UnauthorizedAccessException or JsonException) { return null; }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException) { return old; }
     }
 
-    /// A data folder named by a card, which anything could have written: a local path (X:\..., no \\server or \\?\
-    /// device path, no "C:\file:stream"), strictly inside the user's profile once ".." is resolved. Judged by its text
-    /// alone (GetFullPath doesn't touch the disk), so a refused path is never looked at. Null when refused.
-    public static string? CardFolder(string? path, string profile)
+    /// An installed app's exe from its uninstall entry (DisplayIcon), looked for per machine first, in both registry
+    /// views, then for this user: the studio's apps install per machine now, their older versions per user.
+    public static string? Uninstalled(string key)
     {
-        if (path == null || path.Length > 260 || !Local(path) || path.IndexOf(':', 2) >= 0) return null;
-        var full = Path.GetFullPath(path).TrimEnd('\\');
-        return full.StartsWith(profile.TrimEnd('\\') + '\\', StringComparison.OrdinalIgnoreCase) ? full : null;
+        foreach (var (hive, view) in new[] { (RegistryHive.LocalMachine, RegistryView.Registry64), (RegistryHive.LocalMachine, RegistryView.Registry32), (RegistryHive.CurrentUser, RegistryView.Default) })
+            try
+            {
+                using var baseKey = RegistryKey.OpenBaseKey(hive, view);
+                using var k = baseKey.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\" + key);
+                if (k?.GetValue("DisplayIcon") is string icon && icon.Split(',')[0].Trim('"') is var exe && Local(exe) && File.Exists(exe)) return exe;
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.Security.SecurityException) { }
+        return null;
     }
 
     /// Sister apps installed on this PC (their card exists and its exe is still there), and whether the

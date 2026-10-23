@@ -1,0 +1,66 @@
+# What's new in Backup Labs, newest first. Built into the exe (WhatsNewWindow).
+# "## version | yyyy-MM-dd | title", then the release's lines: "**Heading**", "- point", or a plain paragraph.
+
+## 1.6.0 | 2026-10-23 | One home for the program, one for its data
+Backup Labs moves in with the other Protagonist Labs apps: the program to Program Files, its settings and log next to every other app's data. Nothing to do on your side, and nothing of yours is left behind.
+**Where things live now**
+- The program is in **C:\Program Files\ProtagonistLabs\Backup Labs**, for everyone on this PC. Installing and updating ask Windows for permission once; say no and the version you have keeps running.
+- Your jobs, settings and log move by themselves to **%APPDATA%\ProtagonistLabs\Backup Labs** the first time 1.6.0 runs. It's a rename, so it takes no time, and it never mixes two folders.
+- The old installation in your user folder is removed, along with its shortcuts. Start with Windows, double-clicking a .bkl and the Open button keep working from the new place.
+**Our apps' data, in one folder**
+- The **Protagonist Labs apps** job now backs up a single folder, %APPDATA%\ProtagonistLabs, where each of our apps keeps its data from its next version on. The old per-app folders leave the job; anything you added yourself stays.
+- Covers, trailers and browser caches the apps download again are still left out. Every backup you already made restores exactly as before.
+**Also**
+- What's new looks like this now: every release by month, built into the app, so it opens offline too. It comes up once after an update, and any time from the sidebar or the tray.
+
+## 1.5.0 | 2026-10-21 | Jobs wait for their time
+- A new job no longer starts by itself while you set it up. It waits for its first scheduled time, or for **Back up now**.
+- Daily backups run at the time you choose, weekly ones on the day and time you choose. If the PC is off then, the backup runs once when it is next on. Your existing jobs keep their usual time.
+- New: **Back up our apps' data**. One click makes a job for the settings and data of the Protagonist Labs apps on this PC, leaving out covers, trailers and caches they download again. You only choose where the backups go.
+
+## 1.4.0 | 2026-10-20 | Works with Stash
+- In Stash 2.2, click Backup Labs' name under Works with and your Thunderbird and Firefox backups get a job here, so they get versions on another disk or a NAS.
+- If you move Stash's backup folder, the job follows it before its next run and the log says so.
+- Safer: Backup Labs never contacts a network path or a device just to check whether another app is installed.
+
+## 1.3.0 | 2026-10-20 | Backups are .bkl files
+- Archives are now **.bkl** files, plain or encrypted. A plain one is an ordinary zip inside: 7-Zip opens it, and renamed to .zip it opens in Explorer.
+- Double-click a .bkl and Backup Labs opens on it: restore the whole backup or find one file, even from a backup that isn't in your jobs.
+- Your existing .zip and encrypted backups keep working exactly as before.
+
+## 1.2.0 | 2026-10-17 | Clone a drive
+- **Clone a drive**: copy an SD card, a USB stick, a hard disk or an SSD to an .img file, write an image back, or clone one disk straight onto another.
+- Copy every sector, or only the space NTFS uses, which is much faster on a big, half-empty disk. The disk Windows runs from can be cloned while Windows runs.
+- **Works with SpaceScan**: it names your backup folders and backs a folder up from its row menu; Backup Labs opens SpaceScan on your backup drive.
+- A full backup drive now stops the backup with that reason, instead of skipping every file after it.
+
+## 1.1.2 | 2026-10-17 | A tray menu you can read
+- The tray menu follows Windows' dark or light mode, and a hovered item keeps its text colour. Rows are a little taller, corners rounded on Windows 11.
+
+## 1.1.1 | 2026-10-16 | Hourly update checks
+- Backup Labs looks for a new version every hour while it runs.
+- If Check for updates can't reach GitHub, it says so instead of "Up to date".
+
+## 1.1.0 | 2026-10-15 | Works with Shelf
+- Shelf can set up one backup job for all your game saves, and Backup Labs keeps it in step with your games before every run.
+- New "Works with" lines at the bottom of the sidebar.
+
+## 1.0.4 | 2026-09-29 | One Open button
+- One **Open** button again: it opens the backup folder in File Labs when File Labs is installed, otherwise in your default file manager.
+
+## 1.0.3 | 2026-09-29 | Add files
+- New: **Add files…**, beside Add folders…. A job can hold single files next to folders and whole drives.
+
+## 1.0.2 | 2026-09-29 | A job from anywhere
+- Start Backup Labs with folders or files and it makes a new job of them, ready for you to pick where the backups go. **Back up with Backup Labs** in File Labs does exactly that.
+- A job can back up single files, not only folders.
+
+## 1.0.1 | 2026-09-29 | Open in File Labs
+- New: **Open in File Labs**, beside Open on the backup destination.
+
+## 1.0.0 | 2026-09-28 | The first release
+- Back up any folders or whole drives, as several jobs, each with its own destination, format and schedule.
+- Incremental backups you can browse: every backup is a normal folder, and files that didn't change are hard links, so they take no extra space.
+- Or one zip per backup, or an encrypted archive (AES-256, opens only with your password).
+- Smart retention: everything from the last 24 hours, one a day for a month, one a week for a year.
+- Restore a whole backup, or find one file and bring back any of its versions.

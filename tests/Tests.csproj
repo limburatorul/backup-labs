@@ -12,5 +12,6 @@
     <Compile Include="..\Ecosystem.cs" />
     <Compile Include="..\Updater.cs" />
     <Compile Include="..\Jobs.cs" />
+    <None Include="..\whatsnew.txt;..\Backup.csproj" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>
