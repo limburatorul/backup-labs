@@ -9,14 +9,13 @@ using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shapes;
 
 namespace Backup;
 
 /// What's new, as the studio's other apps show it (Uproot's window, in Backup Labs' colours): every release in a list
 /// on the left, under the month it came out, and the chosen one on the right under its 960 x 170 banner. The notes are
 /// whatsnew.txt, built into the exe, so it works offline and shows every release. A release with a picture of its own
-/// (WhatsNew\x.y.jpg, built in) shows it; the others get the app's colours and a line of backups drawn from the version.
+/// (WhatsNew\x.y.jpg, built in) shows it; the others show the picture of the month they came out in (WhatsNew\mMM.jpg).
 public sealed class WhatsNewWindow : Window
 {
     internal sealed record Release(string Version, DateTime Date, string Title, List<string> Lines);
@@ -186,47 +185,19 @@ public sealed class WhatsNewWindow : Window
         return t;
     }
 
-    /// The release's picture (WhatsNew\x.y.jpg, built in), or Backup Labs' colours under its version and title.
+    /// The release's picture (x.y.jpg, built in), or the one for the month it came out (mMM.jpg).
     static UIElement Banner(Release r)
     {
+        var assembly = typeof(WhatsNewWindow).Assembly;
         var minor = string.Join('.', r.Version.Split('.').Take(2));
-        using var stream = typeof(WhatsNewWindow).Assembly.GetManifestResourceStream($"WhatsNew.{minor}.jpg");
-        if (stream != null)
-        {
-            var picture = new BitmapImage();
-            picture.BeginInit();
-            picture.CacheOption = BitmapCacheOption.OnLoad;
-            picture.StreamSource = stream;
-            picture.EndInit();
-            picture.Freeze();
-            return new Image { Source = picture, Width = 960, Height = 170, Stretch = Stretch.UniformToFill };
-        }
-
-        // the site's colours: night blue, the accent #4c8dff and violet #b15cff; a row of backups, one per day,
-        // each a stack of the files it keeps, seeded by the version so a release looks the same every time
-        var ground = new LinearGradientBrush(Color.FromRgb(0x0A, 0x0D, 0x13), Color.FromRgb(0x12, 0x1A, 0x2E), 20);
-        var art = new Canvas { Width = 960, Height = 170, ClipToBounds = true };
-        var glow = new Ellipse { Width = 560, Height = 380, Fill = new RadialGradientBrush(Color.FromArgb(0x50, 0x4C, 0x8D, 0xFF), Color.FromArgb(0, 0x4C, 0x8D, 0xFF)) };
-        Canvas.SetLeft(glow, 520); Canvas.SetTop(glow, -150);
-        art.Children.Add(glow);
-        var v = r.Version.Split('.').Select(int.Parse).ToArray();
-        var rnd = new Random(v[0] * 10000 + v[1] * 100 + v[2]);
-        for (int day = 0; day < 9; day++)
-        {
-            double x = 420 + day * 58, height = 30 + rnd.NextDouble() * 80;
-            bool lit = day == 8;
-            var color = lit ? Color.FromRgb(0xB1, 0x5C, 0xFF) : Color.FromArgb((byte)(0x50 + day * 0x10), 0x4C, 0x8D, 0xFF);
-            for (double y = 140; y > 140 - height; y -= 12)
-            {
-                var sheet = new Rectangle { Width = 40, Height = 8, RadiusX = 2, RadiusY = 2, Fill = new SolidColorBrush(color) };
-                Canvas.SetLeft(sheet, x); Canvas.SetTop(sheet, y);
-                art.Children.Add(sheet);
-            }
-        }
-        var words = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(26, 0, 0, 0), MaxWidth = 380, HorizontalAlignment = HorizontalAlignment.Left };
-        words.Children.Add(new TextBlock { Text = "WHAT’S NEW IN", FontSize = 11, FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromArgb(0xCC, 255, 255, 255)) });
-        words.Children.Add(new TextBlock { Text = r.Version, FontSize = 34, FontWeight = FontWeights.SemiBold, Foreground = Brushes.White });
-        words.Children.Add(new TextBlock { Text = r.Title, FontSize = 14, TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Color.FromArgb(0xE6, 255, 255, 255)) });
-        return new Grid { Width = 960, Height = 170, Background = ground, Children = { art, words } };
+        using var stream = assembly.GetManifestResourceStream($"WhatsNew.{minor}.jpg")
+            ?? assembly.GetManifestResourceStream($"WhatsNew.m{r.Date:MM}.jpg");
+        var picture = new BitmapImage();
+        picture.BeginInit();
+        picture.CacheOption = BitmapCacheOption.OnLoad;
+        picture.StreamSource = stream;
+        picture.EndInit();
+        picture.Freeze();
+        return new Image { Source = picture, Width = 960, Height = 170, Stretch = Stretch.UniformToFill };
     }
 }
