@@ -2,6 +2,10 @@
 # "## version | yyyy-MM-dd | title", then the release's lines: "**Heading**", "- point", or a plain paragraph.
 # A release's picture is WhatsNew\<x.y>.jpg; without one it shows its month's, WhatsNew\m<MM>.jpg, which must exist.
 
+## 1.6.2 | 2026-10-26 | Updates no longer leave Backup Labs running as administrator
+- After updating itself, Backup Labs started again as administrator. Windows then kept other apps from reaching it, so **Back up with Backup Labs** in File Labs, **Show in Backup Labs** in SpaceScan, Shelf's game saves and double-clicking a backup did nothing while it ran. Updates now bring Backup Labs back as you.
+- This one update still comes through the old updater, so if Backup Labs restarted on its own, choose **Exit** on its tray icon once and open it again.
+
 ## 1.6.1 | 2026-10-25 | A new icon
 - **A new icon**, brighter and easier to spot in the taskbar and the tray.
 - What's new now shows a picture for each release.
