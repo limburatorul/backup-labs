@@ -2,6 +2,15 @@
 # "## version | yyyy-MM-dd | title", then the release's lines: "**Heading**", "- point", or a plain paragraph.
 # A release's picture is WhatsNew\<x.y>.jpg; without one it shows its month's, WhatsNew\m<MM>.jpg, which must exist.
 
+## 1.6.3 | 2026-11-01 | Shelf's covers and trailers are backed up too
+Restoring your apps now brings Shelf's library back as it looked, without downloading its pictures and trailers all over again.
+**Your apps' backup**
+- The **Protagonist Labs apps** job now backs up Shelf's covers, screenshots, trailers and thumbnails. They take a long time to download again.
+- Your job is updated by itself the first time 1.6.3 starts. Only the four exclusions Backup Labs added are removed; anything you left out yourself stays out.
+- Browser caches Shelf rebuilds on its own stay out.
+**Also**
+- **Buy me a pizza**, next to What's new in the sidebar, if you'd like to chip in. It's optional, and it goes toward code signing and a Steam listing.
+
 ## 1.6.2 | 2026-10-26 | Updates no longer leave Backup Labs running as administrator
 - After updating itself, Backup Labs started again as administrator. Windows then kept other apps from reaching it, so **Back up with Backup Labs** in File Labs, **Show in Backup Labs** in SpaceScan, Shelf's game saves and double-clicking a backup did nothing while it ran. Updates now bring Backup Labs back as you.
 - This one update still comes through the old updater, so if Backup Labs restarted on its own, choose **Exit** on its tray icon once and open it again.

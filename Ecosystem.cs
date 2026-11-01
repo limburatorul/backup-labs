@@ -209,13 +209,17 @@ static class Ecosystem
     public static (List<string> Sources, List<string> Exclude) AppsJob() => (new() { Root }, AppsExclude(Root));
 
     /// Every studio app keeps its settings and data in the shared folder, %APPDATA%\ProtagonistLabs\<App>, so the job
-    /// is that folder alone. Left out: what the apps download or rebuild by themselves, as path patterns, so an app
-    /// that moves its data in later is covered too. Chromium's caches sit at the top of each Electron app's folder;
-    /// Shelf's art and trailers come back from the stores, Lume's icons from the apps.
+    /// is that folder alone. Left out: what the apps rebuild by themselves, as path patterns, so an app that moves its
+    /// data in later is covered too. Chromium's caches: '*' spans folders too, so root\*\Cache also catches the ones
+    /// a level down, as in Shelf\Browser. Lume's icons come back from the apps. Shelf's art is in (see KeepShelfArt).
     public static List<string> AppsExclude(string root) =>
-        Chromium.Select(n => Path.Combine(root, "*", n))
-            .Concat(new[] { "covers", "screenshots", "trailers", "thumbs" }.Select(n => Path.Combine(root, "Shelf", n)))
-            .Append(Path.Combine(root, "Lume", "icons")).ToList();
+        Chromium.Select(n => Path.Combine(root, "*", n)).Append(Path.Combine(root, "Lume", "icons")).ToList();
+
+    /// Shelf's covers, screenshots, trailers and thumbs are backed up since 1.6.3: the user's call, they took long to
+    /// download. 1.6.0–1.6.2 left them out with these four patterns; they leave the job, and only exactly as Backup Labs
+    /// wrote them. The caller runs it once (AppSettings.ShelfArtKept), so the same path added later by hand stays.
+    public static bool KeepShelfArt(List<string> exclude, string root) =>
+        exclude.RemoveAll(x => new[] { "covers", "screenshots", "trailers", "thumbs" }.Any(n => x == Path.Combine(root, "Shelf", n))) > 0;
 
     public static bool MoveAppsJob(List<string> sources, List<string> exclude) => MoveAppsJob(sources, exclude, Root, AppData,
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData));

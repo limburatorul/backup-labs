@@ -1017,6 +1017,8 @@ public partial class MainWindow : Window
 
     void WhatsNew_Click(object sender, RoutedEventArgs e) => WhatsNewWindow.Open(this);
 
+    void Pizza_Click(object sender, RoutedEventArgs e) => Process.Start(new ProcessStartInfo("https://buymeacoffee.com/protagonistlabs") { UseShellExecute = true });
+
     async void CheckUpdates_Click(object sender, RoutedEventArgs e)
     {
         UpdateCheckButton.IsEnabled = false;

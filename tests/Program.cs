@@ -403,7 +403,7 @@ Check(Kept(Ecosystem.StashJobId), "nor no file at all");
     var programData = Path.Combine(pr, "programdata");
     var plRoot = Path.Combine(roaming, "ProtagonistLabs");
     var (fresh, freshExcl) = (new List<string> { plRoot }, Ecosystem.AppsExclude(plRoot));
-    Check(fresh.SequenceEqual(new[] { plRoot }) && freshExcl.Count == 13, "the button's job: the shared folder alone, 13 cache patterns left out");
+    Check(fresh.SequenceEqual(new[] { plRoot }) && freshExcl.Count == 9, "the button's job: the shared folder alone, 9 cache patterns left out");
 
     // the job as 1.5.0 made it on the user's PC (23.10.2026), plus a folder and an exclusion the user added by hand
     var gb = Path.Combine(roaming, "game-browser");
@@ -415,7 +415,7 @@ Check(Kept(Ecosystem.StashJobId), "nor no file at all");
     Check(Ecosystem.MoveAppsJob(sources, excl, plRoot, roaming, programData) && sources.SequenceEqual(new[] { plRoot, mine }),
           "the apps job: old per-app folders out, the shared folder first, a folder the user added stays");
     Check(excl[0] == "*.tmp" && excl.Skip(1).SequenceEqual(Ecosystem.AppsExclude(plRoot)), "its old caches' exclusions give way to the new ones; the user's own stays");
-    Check(!Ecosystem.MoveAppsJob(sources, excl, plRoot, roaming, programData) && sources.Count == 2 && excl.Count == 14, "a second start changes nothing");
+    Check(!Ecosystem.MoveAppsJob(sources, excl, plRoot, roaming, programData) && sources.Count == 2 && excl.Count == 10, "a second start changes nothing");
     var edited = new List<string> { mine };
     Check(!Ecosystem.MoveAppsJob(edited, new List<string>(), plRoot, roaming, programData) && edited.SequenceEqual(new[] { mine }),
           "a job the user later trimmed to their own folder is left alone");
@@ -430,14 +430,24 @@ Check(Kept(Ecosystem.StashJobId), "nor no file at all");
     Fill(Path.Combine(shelfDir, "covers"), 3000); Fill(Path.Combine(shelfDir, "trailers"), 9000); Fill(Path.Combine(shelfDir, "Cache"), 1500); Fill(Path.Combine(shelfDir, "GPUCache"), 100);
     Fill(Path.Combine(plRoot, "Reel", "Code Cache"), 700); Fill(Path.Combine(plRoot, "Reel", "posters"), 50);
     Fill(Path.Combine(plRoot, "Lume", "icons"), 300); Fill(Path.Combine(plRoot, "Backup Labs"), 10); Fill(Path.Combine(plRoot, "apps"), 1);
+    // Shelf's 2026-10 layout (Shelf Beta first): art in Game Data, Chromium's files a level down in Browser
+    var beta = Path.Combine(plRoot, "Shelf Beta");
+    Fill(Path.Combine(beta, "Game Data", "covers"), 200); Fill(Path.Combine(beta, "Game Data", "trailers"), 400); Fill(Path.Combine(beta, "Library"), 5);
+    Fill(Path.Combine(beta, "Browser"), 2); Fill(Path.Combine(beta, "Browser", "Cache"), 1500); Fill(Path.Combine(beta, "Browser", "GPUCache"), 100);
+    Fill(Path.Combine(shelfDir, "Browser", "Code Cache"), 700);
     var with = Engine.Run(new RunOptions(fresh, Path.Combine(pr, "dst-with")) { Exclude = freshExcl }, log.Add, null, default);
     var without = Engine.Run(new RunOptions(fresh, Path.Combine(pr, "dst-without")), log.Add, null, default);
     Console.WriteLine($"     synthetic shared folder: {Engine.Size(without.BytesCopied)} in full, {Engine.Size(with.BytesCopied)} with the caches left out ({with.Copied} files)");
     string In(string p) => Path.Combine(with.Snapshot, Engine.RelPath(p), "f.bin");
     Check(with.Failed == 0 && File.Exists(In(Path.Combine(shelfDir, "save-backups"))) && File.Exists(In(Path.Combine(plRoot, "Reel", "posters"))) && File.Exists(In(Path.Combine(plRoot, "Backup Labs")))
-          && !File.Exists(In(Path.Combine(shelfDir, "trailers"))) && !File.Exists(In(Path.Combine(plRoot, "Reel", "Code Cache"))) && !File.Exists(In(Path.Combine(plRoot, "Lume", "icons")))
-          && with.BytesCopied < without.BytesCopied / 10,
-          "the job backs up every app's settings and saves, not the caches (under a tenth of the bytes here)");
+          && !File.Exists(In(Path.Combine(shelfDir, "Cache"))) && !File.Exists(In(Path.Combine(plRoot, "Reel", "Code Cache"))) && !File.Exists(In(Path.Combine(plRoot, "Lume", "icons"))),
+          "the job backs up every app's settings and saves, not the caches");
+    Check(File.Exists(In(Path.Combine(shelfDir, "covers"))) && File.Exists(In(Path.Combine(shelfDir, "trailers")))
+          && File.Exists(In(Path.Combine(beta, "Game Data", "covers"))) && File.Exists(In(Path.Combine(beta, "Game Data", "trailers"))),
+          "1.6.3: Shelf's art is backed up, in the old layout and in Game Data");
+    Check(File.Exists(In(Path.Combine(beta, "Library"))) && File.Exists(In(Path.Combine(beta, "Browser")))
+          && !File.Exists(In(Path.Combine(beta, "Browser", "Cache"))) && !File.Exists(In(Path.Combine(beta, "Browser", "GPUCache"))) && !File.Exists(In(Path.Combine(shelfDir, "Browser", "Code Cache"))),
+          @"Chromium's caches under Shelf\Browser and Shelf Beta\Browser stay out; the rest of Browser is in");
 
     // Backup Labs' own folder, moved once by a rename
     var oldData = Path.Combine(pr, "old", "BackupLabs");
@@ -549,6 +559,25 @@ if (system != null)
     if (other != null)
         Check(Clone.Problem(new CloneRequest("DiskToDisk", other.Number, null, other.Number, null, false, true, false, other.Id, other.Id), cloneDisks) != null,
               "a disk isn't cloned onto itself");
+}
+
+// ---- 1.6.3: Shelf's art is backed up; the four exclusions 1.6.0 wrote leave the apps job once ----
+{
+    var shelfPl = Path.Combine(Ecosystem.Root, "Shelf");
+    var art = new[] { "covers", "screenshots", "trailers", "thumbs" }.Select(n => Path.Combine(shelfPl, n)).ToList();
+    var job162 = Ecosystem.AppsExclude(Ecosystem.Root).Concat(art).Append("*.tmp").Append(Path.Combine(shelfPl, "Game Data", "trailers")).ToList();
+    var settings = new AppSettings { TimedSchedules = true, Jobs = { new Job { Id = Ecosystem.AppsJobId, Name = "Protagonist Labs apps", Sources = { Ecosystem.Root }, Exclude = job162 } } };
+    Directory.CreateDirectory(Store.DataDir);
+    Store.Save(settings);
+    var after = Store.Load();
+    var appsEx = after.Jobs.Single(j => j.Id == Ecosystem.AppsJobId).Exclude;
+    Check(after.ShelfArtKept && !appsEx.Any(art.Contains) && appsEx.SequenceEqual(Ecosystem.AppsExclude(Ecosystem.Root).Append("*.tmp").Append(Path.Combine(shelfPl, "Game Data", "trailers"))),
+          "a 1.6.2 apps job: its four Shelf art exclusions go, the user's own stay");
+    Check(!Ecosystem.KeepShelfArt(new List<string> { art[0].ToUpperInvariant(), art[1] + "\\", Path.Combine(Ecosystem.Root, "Shelf Beta", "covers") }, Ecosystem.Root),
+          "only the exact paths Backup Labs wrote: a user's look-alike stays");
+    after.Jobs[0].Exclude.Add(art[0]);
+    Store.Save(after);
+    Check(Store.Load().Jobs[0].Exclude.Contains(art[0]), "done once: the same path added back by hand later stays");
 }
 
 foreach (var f in Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories)) File.SetAttributes(f, FileAttributes.Normal);

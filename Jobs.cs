@@ -60,6 +60,7 @@ public sealed class AppSettings
     public List<Job> Jobs { get; set; } = new();
     public string LastSeenVersion { get; set; } = ""; // for "What's new" after an update
     public bool TimedSchedules { get; set; }          // false in a file from 1.4.0 or older: see Store.Parse
+    public bool ShelfArtKept { get; set; }            // false in a file from 1.6.2 or older: see Store.Load
 }
 
 static class Store
@@ -82,6 +83,13 @@ static class Store
         if (s.Jobs.FirstOrDefault(j => j.Id == Ecosystem.AppsJobId) is { } apps && Ecosystem.MoveAppsJob(apps.Sources, apps.Exclude))
         {
             Log($"{apps.Name}: now backs up {string.Join("; ", apps.Sources)}, where every studio app keeps its data");
+            Save(s);
+        }
+        if (!s.ShelfArtKept)
+        {
+            if (s.Jobs.FirstOrDefault(j => j.Id == Ecosystem.AppsJobId) is { } job && Ecosystem.KeepShelfArt(job.Exclude, Ecosystem.Root))
+                Log($"{job.Name}: Shelf's covers, screenshots, trailers and thumbs are backed up from now on");
+            s.ShelfArtKept = true;
             Save(s);
         }
         return s;
