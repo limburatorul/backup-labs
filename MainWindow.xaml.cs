@@ -53,6 +53,7 @@ public partial class MainWindow : Window
         Ecosystem.WriteCard(Updater.Current.ToString());
         Ecosystem.WriteJobs(app.Jobs.Select(j => j.Shared())); // a PC where they were never shared yet
         ShowWorksWith();
+        Nudge.Attach(PizzaButton, this);
 
         var icon = Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!)!;
         var menu = TrayMenu.Create();

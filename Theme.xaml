@@ -51,6 +51,27 @@
     <Setter Property="Padding" Value="22,9"/>
   </Style>
 
+  <!-- Buy me a pizza: the same red in every studio app, a lighter red on hover; Nudge.cs pulses it now and then -->
+  <Style x:Key="Pizza" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="#D63A3A"/>
+    <Setter Property="Foreground" Value="White"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Border x:Name="b" CornerRadius="16" BorderThickness="1" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding Background}">
+            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+          </Border>
+          <ControlTemplate.Triggers>
+            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#E54848"/><Setter TargetName="b" Property="BorderBrush" Value="#E54848"/></Trigger>
+            <Trigger Property="IsPressed" Value="True"><Setter TargetName="b" Property="Background" Value="#BF3030"/><Setter TargetName="b" Property="BorderBrush" Value="#BF3030"/></Trigger>
+            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="b" Property="BorderBrush" Value="{StaticResource Text}"/></Trigger>
+          </ControlTemplate.Triggers>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
   <!-- segmented control: a row of radio buttons inside a Panel border -->
   <Style x:Key="Seg" TargetType="RadioButton">
     <Setter Property="Foreground" Value="{StaticResource Dim}"/>
