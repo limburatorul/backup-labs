@@ -2,6 +2,13 @@
 # "## version | yyyy-MM-dd | title", then the release's lines: "**Heading**", "- point", or a plain paragraph.
 # A release's picture is WhatsNew\<x.y>.jpg; without one it shows its month's, WhatsNew\m<MM>.jpg, which must exist.
 
+## 1.6.5 | 2026-11-03 | A pizza button that waves
+The red **Buy me a pizza** button now catches your eye once in a while, so the people who'd like to chip in can find it.
+**Buy me a pizza**
+- A gentle double pulse every 10 seconds, and a lighter red under the pointer.
+- It stays still while you hover it, while the window is minimized or in the tray, and when Windows' animations are off.
+- It's optional, it opens a page in your browser, and Backup Labs stays free.
+
 ## 1.6.4 | 2026-11-01 | Buy me a pizza, easier to find
 - **Buy me a pizza** is now a proper red button in the sidebar, above **Start with Windows**, instead of a small link. It's optional, it opens a page in your browser, and it goes toward code signing and a Steam listing.
 
